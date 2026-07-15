@@ -1,0 +1,1 @@
+export default function ImageViewer({ src, onClose }) { if (!src) return null; const video = /\.(mp4|webm)$/i.test(src); return <div className="image-viewer" role="dialog" aria-modal="true"><button onClick={onClose} aria-label="Close viewer">×</button>{video ? <video controls autoPlay><source src={src} /></video> : <img src={src} alt="Expanded post" />}</div>; }

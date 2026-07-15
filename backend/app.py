@@ -151,6 +151,10 @@ from models import (
     Like,
     Comment,
     Notification,
+    Bookmark,
+    Community,
+    CommunityMember,
+    Story,
 )
 
 db.init_app(app)
@@ -212,6 +216,47 @@ serializer = URLSafeTimedSerializer(app.config["JWT_SECRET_KEY"])
 # Utility to check file extensions
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
+
+
+def public_media_url(path):
+    if not path:
+        return None
+    if path.startswith(('http://', 'https://')):
+        return path
+    return f"{request.host_url.rstrip('/')}/{path.lstrip('/')}"
+
+
+def public_profile_url(picture):
+    return public_media_url(f"/static/{picture}") if picture else None
+
+
+def serialize_comment(comment):
+    return {
+        "id": comment.id,
+        "content": comment.content,
+        "user_id": comment.user_id,
+        "user_name": comment.user.name if comment.user else "Unknown",
+        "user_photo": public_profile_url(comment.user.picture if comment.user else None),
+        "timestamp": comment.timestamp.isoformat(),
+    }
+
+
+def serialize_post(post, current_user_id=None, include_comments=True):
+    comments = [serialize_comment(comment) for comment in post.comments] if include_comments else []
+    return {
+        "id": post.id,
+        "user_id": post.user_id,
+        "user_name": post.user.name if post.user else "Unknown",
+        "user_photo": public_profile_url(post.user.picture if post.user else None),
+        "content": post.content,
+        "media_url": public_media_url(post.media_url),
+        "timestamp": post.timestamp.isoformat(),
+        "likes": post.like_count(),
+        "liked": bool(current_user_id and Like.query.filter_by(post_id=post.id, user_id=current_user_id).first()),
+        "bookmarked": bool(current_user_id and Bookmark.query.filter_by(post_id=post.id, user_id=current_user_id).first()),
+        "is_owner": post.user_id == current_user_id,
+        "comments": comments,
+    }
 
 # Routes
 @app.route("/", defaults={"path": ""})
@@ -745,27 +790,58 @@ def create_post():
         app.logger.error(f"Error creating post: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
-# Get posts with comments
+# Friends-only feed with pagination. Explore is intentionally the public discovery surface.
 @app.route('/api/feeds', methods=['GET'])
+@jwt_required()
 def get_all_posts():
-    posts = Post.query.options(joinedload(Post.user)).order_by(Post.timestamp.desc()).all()
-    response = [{
-        'id': post.id,
-        'user_id': post.user_id,
-        'user_name': post.user.name if post.user else "Unknown",
-        'user_photo': post.user.picture if post.user and post.user.picture else None,
-        'content': post.content,
-        'media_url': post.media_url,
-        'timestamp': post.timestamp.isoformat(),
-        'comments': [{
-            'id': comment.id,
-            'content': comment.content,
-            'user_name': comment.user.name if comment.user else "Unknown",
-            'user_photo': comment.user.picture if comment.user and comment.user.picture else None,
-            'timestamp': comment.timestamp.isoformat()
-        } for comment in post.comments]
-    } for post in posts]
-    return jsonify(response), 200
+    current_user_id = get_jwt_identity()
+    page = max(request.args.get('page', 1, type=int), 1)
+    per_page = min(max(request.args.get('per_page', 12, type=int), 1), 40)
+    friend_ids = db.session.query(Friendship.friend_id).filter(Friendship.user_id == current_user_id)
+    pagination = Post.query.options(joinedload(Post.user)).filter(Post.user_id.in_(friend_ids)).order_by(Post.timestamp.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    return jsonify({"items": [serialize_post(post, current_user_id) for post in pagination.items], "page": page, "has_more": pagination.has_next, "total": pagination.total}), 200
+
+
+@app.route('/api/explore', methods=['GET'])
+@jwt_required()
+def explore_posts():
+    current_user_id = get_jwt_identity()
+    page = max(request.args.get('page', 1, type=int), 1)
+    per_page = min(max(request.args.get('per_page', 12, type=int), 1), 40)
+    query = (request.args.get('q') or '').strip()
+    order = request.args.get('sort', 'recent')
+    post_query = Post.query.options(joinedload(Post.user))
+    if query:
+        post_query = post_query.filter(Post.content.ilike(f'%{query}%'))
+    if order == 'popular':
+        post_query = post_query.outerjoin(Like).group_by(Post.id).order_by(db.func.count(Like.id).desc(), Post.timestamp.desc())
+    else:
+        post_query = post_query.order_by(Post.timestamp.desc())
+    pagination = post_query.paginate(page=page, per_page=per_page, error_out=False)
+    return jsonify({"items": [serialize_post(post, current_user_id) for post in pagination.items], "page": page, "has_more": pagination.has_next}), 200
+
+
+@app.route('/api/posts/<int:post_id>', methods=['GET'])
+@jwt_required()
+def get_post(post_id):
+    post = Post.query.options(joinedload(Post.user)).get(post_id)
+    if not post:
+        return jsonify({"error": "Post not found"}), 404
+    return jsonify(serialize_post(post, get_jwt_identity())), 200
+
+
+@app.route('/api/posts/<int:post_id>', methods=['DELETE'])
+@jwt_required()
+def delete_post(post_id):
+    user_id = get_jwt_identity()
+    post = Post.query.get(post_id)
+    if not post:
+        return jsonify({"error": "Post not found"}), 404
+    if post.user_id != user_id:
+        return jsonify({"error": "You can only delete your own posts"}), 403
+    db.session.delete(post)
+    db.session.commit()
+    return jsonify({"message": "Post deleted", "post_id": post_id}), 200
 
 
 @app.route('/api/posts/<int:post_id>/like', methods=['POST'])
@@ -798,6 +874,33 @@ def like_post(post_id):
         db.session.rollback()
         return jsonify({"error": "Internal Server Error"}), 500
 
+
+@app.route('/api/posts/<int:post_id>/bookmark', methods=['POST'])
+@jwt_required()
+def toggle_bookmark(post_id):
+    user_id = get_jwt_identity()
+    if not Post.query.get(post_id):
+        return jsonify({"error": "Post not found"}), 404
+    bookmark = Bookmark.query.filter_by(user_id=user_id, post_id=post_id).first()
+    if bookmark:
+        db.session.delete(bookmark)
+        bookmarked = False
+    else:
+        db.session.add(Bookmark(user_id=user_id, post_id=post_id))
+        bookmarked = True
+    db.session.commit()
+    return jsonify({"post_id": post_id, "bookmarked": bookmarked}), 200
+
+
+@app.route('/api/bookmarks', methods=['GET'])
+@jwt_required()
+def get_bookmarks():
+    user_id = get_jwt_identity()
+    page = max(request.args.get('page', 1, type=int), 1)
+    per_page = min(max(request.args.get('per_page', 12, type=int), 1), 40)
+    pagination = Bookmark.query.filter_by(user_id=user_id).order_by(Bookmark.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    return jsonify({"items": [serialize_post(bookmark.post, user_id) for bookmark in pagination.items], "page": page, "has_more": pagination.has_next}), 200
+
 # New endpoint to add a comment
 @app.route('/api/posts/<int:post_id>/comments', methods=['POST'])
 @jwt_required()
@@ -821,13 +924,7 @@ def add_comment(post_id):
         db.session.add(new_comment)
         db.session.commit()
 
-        return jsonify({
-            "id": new_comment.id,
-            "content": new_comment.content,
-            "user_name": new_comment.user.name,  
-            "user_photo": new_comment.user.picture,  
-            "timestamp": new_comment.timestamp.isoformat()
-        }), 201
+        return jsonify(serialize_comment(new_comment)), 201
 
     except Exception as e:
         print(f"Error in add_comment: {e}")
@@ -847,12 +944,7 @@ def get_comments(post_id):
 
         comments = Comment.query.filter_by(post_id=post_id).all()
 
-        comments_data = [{
-            'id': comment.id,
-            'content': comment.content,
-            'user_name': comment.user.name,  
-            'timestamp': comment.timestamp.isoformat(),
-        } for comment in comments]
+        comments_data = [serialize_comment(comment) for comment in comments]
 
         return jsonify(comments_data), 200
 

@@ -1,0 +1,1 @@
+export default function SkeletonLoader({ count = 3 }) { return <div className="skeleton-list">{Array.from({ length: count }, (_, index) => <div className="skeleton-card" key={index}><i /><span /><span /></div>)}</div>; }

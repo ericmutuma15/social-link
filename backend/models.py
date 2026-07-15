@@ -1,6 +1,5 @@
 from flask_sqlalchemy import SQLAlchemy
-from datetime import datetime
-
+from datetime import datetime, timedelta
 # Create uninitialized SQLAlchemy instance to avoid circular imports.
 # The application will call `db.init_app(app)` in `app.py`.
 db = SQLAlchemy()
@@ -68,13 +67,62 @@ class Like(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     post_id = db.Column(db.Integer, db.ForeignKey('posts.id'), nullable=False)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     # Relationships
     user = db.relationship('User', back_populates='likes')
     post = db.relationship('Post', back_populates='likes')
+    __table_args__ = (db.UniqueConstraint('user_id', 'post_id', name='unique_user_post_like'),)
 
     def __repr__(self):
         return f"<Like by User {self.user_id} on Post {self.post_id}>"
+
+
+class Bookmark(db.Model):
+    __tablename__ = 'bookmarks'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    post_id = db.Column(db.Integer, db.ForeignKey('posts.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    user = db.relationship('User', backref=db.backref('bookmarks', lazy='dynamic'))
+    post = db.relationship('Post', backref=db.backref('bookmarks', lazy='dynamic'))
+    __table_args__ = (db.UniqueConstraint('user_id', 'post_id', name='unique_user_post_bookmark'),)
+
+
+class Community(db.Model):
+    __tablename__ = 'communities'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), unique=True, nullable=False)
+    slug = db.Column(db.String(120), unique=True, nullable=False)
+    description = db.Column(db.String(500), default='')
+    owner_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    owner = db.relationship('User', backref='owned_communities')
+
+
+class CommunityMember(db.Model):
+    __tablename__ = 'community_members'
+    id = db.Column(db.Integer, primary_key=True)
+    community_id = db.Column(db.Integer, db.ForeignKey('communities.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    role = db.Column(db.String(20), default='member', nullable=False)
+    joined_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    community = db.relationship('Community', backref=db.backref('members', lazy='dynamic'))
+    user = db.relationship('User', backref=db.backref('community_memberships', lazy='dynamic'))
+    __table_args__ = (db.UniqueConstraint('community_id', 'user_id', name='unique_community_member'),)
+
+
+class Story(db.Model):
+    __tablename__ = 'stories'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    content = db.Column(db.Text)
+    media_url = db.Column(db.String(300))
+    media_type = db.Column(db.String(20), default='text', nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.utcnow()+ timedelta(hours=24)
+)
+    user = db.relationship('User', backref=db.backref('stories', lazy='dynamic'))
 
 class Message(db.Model):
     __tablename__ = 'messages'
@@ -123,7 +171,7 @@ class Notification(db.Model):
     # Relationships (optional, but useful)
     friend_request = db.relationship("FriendRequest", backref="notifications")
 
-    
+
 
 
 class Friendship(db.Model):
@@ -137,5 +185,3 @@ class Friendship(db.Model):
     friend = db.relationship("User", foreign_keys=[friend_id], backref="friend_of")
 
     __table_args__ = (db.UniqueConstraint('user_id', 'friend_id', name='unique_friendship'),)
-    
-    
