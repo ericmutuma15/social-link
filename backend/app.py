@@ -95,17 +95,19 @@ app.config["JWT_TOKEN_LOCATION"] = ["cookies"]
 app.config["JWT_ACCESS_COOKIE_NAME"] = "access_token"
 app.config["JWT_REFRESH_COOKIE_NAME"] = "refresh_token"
 
+# JWT Cookie Configuration
+
 app.config["JWT_COOKIE_HTTPONLY"] = True
-
-app.config["JWT_COOKIE_SECURE"] = os.getenv("FLASK_ENV") == "production"
-
-app.config["JWT_COOKIE_SAMESITE"] = (
-    "None"
-    if app.config["JWT_COOKIE_SECURE"]
-    else "Lax"
-)
-
 app.config["JWT_COOKIE_CSRF_PROTECT"] = False
+
+if app.debug:
+    # Local development
+    app.config["JWT_COOKIE_SECURE"] = False
+    app.config["JWT_COOKIE_SAMESITE"] = "Lax"
+else:
+    # Production (Render)
+    app.config["JWT_COOKIE_SECURE"] = True
+    app.config["JWT_COOKIE_SAMESITE"] = "None"
 
 app.config["JWT_ACCESS_COOKIE_PATH"] = "/"
 app.config["JWT_REFRESH_COOKIE_PATH"] = "/"
@@ -269,6 +271,22 @@ def serve_react(path):
     
     # fallback for React Router
     return send_from_directory(app.static_folder, "index.html")
+
+from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity
+
+@app.route("/api/debug-jwt")
+def debug_jwt():
+    try:
+        verify_jwt_in_request()
+        return {
+            "valid": True,
+            "identity": get_jwt_identity()
+        }
+    except Exception as e:
+        return {
+            "valid": False,
+            "error": str(e)
+        }, 401
 
 # Refresh token endpoint
 @app.route('/api/refresh', methods=['POST'])
@@ -550,28 +568,15 @@ def serve_sidebar_image(filename):
 @app.route("/api/token", methods=["GET"])
 @jwt_required(refresh=True)
 def refresh_token():
-    try:
-        # Extract the identity from the refresh token
-        current_user = get_jwt_identity()
+    identity = get_jwt_identity()
 
-        # Generate a new access token
-        access_token = create_access_token(identity=current_user)
-        
-        # Set the new access token in the cookie
-        resp = make_response(jsonify({"access_token": access_token}), 200)
-        resp.set_cookie(
-            app.config["JWT_ACCESS_COOKIE_NAME"],
-            access_token,
-            httponly=True,
-            secure=app.config["JWT_COOKIE_SECURE"],  # Ensure this is False in development
-            samesite='Lax',
-            max_age=24 * 60 * 60  # 24 hours
-        )
+    access_token = create_access_token(identity=identity)
 
-        return resp
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    response = jsonify({"message": "Token refreshed"})
 
+    set_access_cookies(response, access_token)
+
+    return response
 
 @app.route("/api/users", methods=["GET"])
 @jwt_required()
