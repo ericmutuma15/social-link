@@ -57,7 +57,7 @@ app.config.from_object(Config)
 allowed_origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
-    "https://desirelink.vercel.app",
+    "https://desire-link-app.vercel.app",
 ]
 
 CORS(
@@ -198,8 +198,8 @@ def add_cors_headers(response):
     allowed_origins = {
         "http://127.0.0.1:5173",
         "http://localhost:5173",
-        "https://desirelink.vercel.app",
-        "https://projectx-back.onrender.com",
+        "https://desire-link-app.vercel.app",
+        
     }
     if origin in allowed_origins:
         response.headers["Access-Control-Allow-Origin"] = origin
