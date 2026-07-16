@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import LoadingPage from "./LoadingPage";
+import BackButton from "../../components/BackButton";
 
 import {
   FaUserFriends,
@@ -161,6 +162,7 @@ const Profile = () => {
   };
   return (
   <div className={`${pageClass} min-h-screen transition-colors duration-300`}>
+    <BackButton/>
 
     {/* ================= HERO ================= */}
 
