@@ -1,1 +1,10 @@
-export default function LoadingScreen({ compact = false }) { return <div className={`loading-screen ${compact ? "loading-screen--compact" : ""}`}><div className="loading-mark">D</div><span>Preparing your space</span></div>; }
+export default function LoadingScreen({ compact = false }) {
+  return (
+    <div
+      className={`loading-screen ${compact ? "loading-screen--compact" : ""}`}
+    >
+      <div className="loading-mark">D</div>
+      <span>Preparing your space</span>
+    </div>
+  );
+}

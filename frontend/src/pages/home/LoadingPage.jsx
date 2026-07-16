@@ -1,5 +1,5 @@
 import React from "react";
-import BG from './../../assets/Olivia1.gif'; // Import the background image
+import BG from './../../assets/Designer(1).png'; // Import the background image
 
 const LoadingPage = () => {
   return (

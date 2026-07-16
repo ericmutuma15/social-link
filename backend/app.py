@@ -747,7 +747,7 @@ def update_profile():
         location = request.form.get('location')
         picture = request.files.get('picture')
 
-        if not name or not description or not location or not picture:
+        if not name:
             return jsonify({'error': 'All fields are required'}), 400
 
         user = User.query.get(current_user_id)

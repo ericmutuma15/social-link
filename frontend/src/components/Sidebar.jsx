@@ -1,4 +1,45 @@
-import { HiOutlineBookmark, HiOutlineChatAlt2, HiOutlineGlobeAlt, HiOutlineHome, HiOutlineUserGroup, HiOutlineUsers, HiOutlineX } from "react-icons/hi";
+import {
+  HiOutlineBookmark,
+  HiOutlineChatAlt2,
+  HiOutlineGlobeAlt,
+  HiOutlineHome,
+  HiOutlineUserGroup,
+  HiOutlineUsers,
+  HiOutlineX,
+} from "react-icons/hi";
 import { NavLink } from "react-router-dom";
-const links = [["/home", "Home", HiOutlineHome], ["/explore", "Explore", HiOutlineGlobeAlt], ["/friends", "Friends", HiOutlineUsers], ["/messages", "Messages", HiOutlineChatAlt2], ["/communities", "Communities", HiOutlineUserGroup], ["/bookmarks", "Bookmarks", HiOutlineBookmark]];
-export default function Sidebar() { return <aside className="left-sidebar"><button className="close-nav icon-button" onClick={() => document.body.classList.remove("nav-open")}><HiOutlineX /></button><nav>{links.map(([to, label, Icon]) => <NavLink key={to} to={to} onClick={() => document.body.classList.remove("nav-open")}><Icon /><span>{label}</span></NavLink>)}</nav><div className="sidebar-tip"><span className="status-dot" /> Your circle is active</div></aside>; }
+const links = [
+  ["/home", "Home", HiOutlineHome],
+  ["/explore", "Explore", HiOutlineGlobeAlt],
+  ["/friends", "Friends", HiOutlineUsers],
+  ["/messages", "Messages", HiOutlineChatAlt2],
+  ["/communities", "Communities", HiOutlineUserGroup],
+  ["/bookmarks", "Bookmarks", HiOutlineBookmark],
+];
+export default function Sidebar() {
+  return (
+    <aside className="left-sidebar">
+      <button
+        className="close-nav icon-button"
+        onClick={() => document.body.classList.remove("nav-open")}
+      >
+        <HiOutlineX />
+      </button>
+      <nav>
+        {links.map(([to, label, Icon]) => (
+          <NavLink
+            key={to}
+            to={to}
+            onClick={() => document.body.classList.remove("nav-open")}
+          >
+            <Icon />
+            <span>{label}</span>
+          </NavLink>
+        ))}
+      </nav>
+      <div className="sidebar-tip">
+        <span className="status-dot" /> Your circle is active
+      </div>
+    </aside>
+  );
+}
