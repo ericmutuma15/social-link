@@ -299,9 +299,12 @@ def refresh():
     return response
 
 
+import traceback
+
 @app.route("/api/register", methods=["POST"])
 def register():
     data = request.get_json()
+
     name = data.get("name")
     email = data.get("email")
     password = data.get("password")
@@ -309,18 +312,31 @@ def register():
     if User.query.filter_by(email=email).first():
         return jsonify({"message": "Email already registered"}), 400
 
-    hashed_password = generate_password_hash(password, method="pbkdf2:sha256")
-    # Make super user for the specific email
-    is_super_user = True if email == "ericmutuma15@gmail.com" else False
-    new_user = User(name=name, email=email, password=hashed_password, is_super_user=is_super_user)
+    hashed_password = generate_password_hash(password)
+
+    is_super_user = email == "ericmutuma15@gmail.com"
+
+    new_user = User(
+        name=name,
+        email=email,
+        password=hashed_password,
+        is_super_user=is_super_user,
+    )
 
     try:
         db.session.add(new_user)
         db.session.commit()
         return jsonify({"message": "User registered successfully"}), 201
+
     except Exception as e:
-        return jsonify({"message": "Registration failed", "error": str(e)}), 500
-    
+        db.session.rollback()
+
+        app.logger.exception("Registration failed")
+
+        return jsonify({
+            "message": "Registration failed",
+            "error": str(e)
+        }), 500
 
 
 import logging
