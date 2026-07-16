@@ -1,16 +1,66 @@
-import React, { useEffect, useState } from "react";
-import { FaUserPlus, FaUser } from "react-icons/fa";
-import { useNavigate } from "react-router-dom";
-import LoadingPage from "./LoadingPage";
-import { toast } from "react-hot-toast";
+import React, {
+  useEffect,
+  useState
+} from "react";
 
+import {
+  motion
+} from "framer-motion";
+
+import {
+  FaUserPlus,
+  FaUser,
+  FaMapMarkerAlt
+} from "react-icons/fa";
+
+import {
+  useNavigate
+} from "react-router-dom";
+
+import LoadingPage from "./LoadingPage";
+
+import {
+  toast
+} from "react-hot-toast";
+
+import {
+  useTheme
+} from "../../context/ThemeContext";
 
 const Card = () => {
+
+  const {
+    theme
+  } = useTheme();
   const [users, setUsers] = useState([]);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const baseUrl = import.meta.env.VITE_API_BASE_URL;
   const navigate = useNavigate();
+  const pageClass =
+  theme === "dark"
+
+    ? "bg-[#0b1120] text-white"
+
+    : "bg-slate-100 text-slate-900";
+
+
+
+const cardClass =
+  theme === "dark"
+
+    ? "bg-slate-900/70 border border-slate-800"
+
+    : "bg-white border border-slate-200 shadow-sm";
+
+
+
+const secondaryText =
+  theme === "dark"
+
+    ? "text-slate-400"
+
+    : "text-slate-500";
 
   useEffect(() => {
     const fetchUsers = async () => {
@@ -88,7 +138,38 @@ const Card = () => {
   if (error) return <div className="text-center text-red-500 p-4">{error}</div>;
 
   return (
-    <div className="p-4 bg-gray-900 space-y-4 scrollable">
+
+  <motion.div
+
+    initial={{
+      opacity: 0,
+      y: 15
+    }}
+
+    animate={{
+      opacity: 1,
+      y: 0
+    }}
+
+    transition={{
+      duration: 0.35
+    }}
+
+    className={`
+      min-h-screen
+      ${pageClass}
+      p-4
+      sm:p-6
+    `}
+
+  >
+
+
+    <div className="
+      max-w-3xl
+      mx-auto
+      space-y-5
+    ">
       {users.map((user) => (
         <div
           key={user.id}
@@ -131,8 +212,11 @@ const Card = () => {
           </div>
         </div>
       ))}
-    </div>
-  );
+        </div>
+
+  </motion.div>
+
+);
 };
 
 export default Card;
