@@ -56,7 +56,7 @@ export default function LoginPage() {
   return (
     <section className="auth-card">
       <Link to="/" className="brand auth-brand">
-        <span>✦</span>desire
+        <span>👊</span>mbogi
       </Link>
       <div className="auth-heading">
         <p className="eyebrow">WELCOME BACK</p>

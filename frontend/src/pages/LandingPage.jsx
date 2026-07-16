@@ -1,4 +1,94 @@
 import { Link } from "react-router-dom";
 import { HiArrowRight, HiChatAlt2, HiHeart, HiUserGroup } from "react-icons/hi";
-const features = [[HiChatAlt2, "Meaningful conversations", "Share thoughts in a space that feels calm and personal."], [HiUserGroup, "Your people, closer", "Find communities and stay present with your closest circle."], [HiHeart, "Designed for delight", "A thoughtful, private social experience without the clutter."]];
-export default function LandingPage() { return <main className="landing"><nav className="landing-nav"><Link className="brand" to="/"><span>✦</span>desire</Link><div><Link to="/login" className="ghost-link">Sign in</Link><Link to="/signup" className="primary-link">Join the circle</Link></div></nav><section className="hero"><div className="hero-copy"><p className="eyebrow">A MORE HUMAN SOCIAL SPACE</p><h1>Meet where <em>connection</em> feels effortless.</h1><p>Desire Link brings your people, stories, and communities together in a beautifully quiet corner of the internet.</p><div className="hero-actions"><Link className="primary-link" to="/signup">Start connecting <HiArrowRight /></Link><Link className="ghost-link" to="/login">Welcome back</Link></div><div className="social-proof"><strong>12k+</strong><span>people making space for what matters</span></div></div><div className="hero-art"><div className="art-card art-card--back">A better kind of feed</div><div className="art-card art-card--front"><span className="art-avatar">✦</span><p>“A little corner for the people and ideas I love.”</p><div><strong>Olivia James</strong><small>just now</small></div></div><i className="glow glow--one" /><i className="glow glow--two" /></div></section><section className="feature-grid">{features.map(([Icon, title, text]) => <article key={title}><Icon /><h2>{title}</h2><p>{text}</p></article>)}</section><section className="landing-cta"><p className="eyebrow">YOUR PEOPLE ARE HERE</p><h2>Make your next scroll mean something.</h2><Link className="primary-link" to="/signup">Create your account <HiArrowRight /></Link></section><footer>© {new Date().getFullYear()} Desire Link. Made for connection.</footer></main>; }
+const features = [
+  [
+    HiChatAlt2,
+    "Meaningful conversations",
+    "Share thoughts in a space that feels calm and personal.",
+  ],
+  [
+    HiUserGroup,
+    "Your people, closer",
+    "Find communities and stay present with your closest circle.",
+  ],
+  [
+    HiHeart,
+    "Designed for delight",
+    "A thoughtful, private social experience without the clutter.",
+  ],
+];
+export default function LandingPage() {
+  return (
+    <main className="landing">
+      <nav className="landing-nav">
+        <Link className="brand" to="/">
+          <span>👊</span>mbogi link
+        </Link>
+        <div>
+          <Link to="/login" className="ghost-link">
+            Sign in
+          </Link>
+          <Link to="/signup" className="primary-link">
+            Join the circle
+          </Link>
+        </div>
+      </nav>
+      <section className="hero">
+        <div className="hero-copy">
+          <p className="eyebrow">A MORE HUMAN SOCIAL SPACE</p>
+          <h1>
+            Meet where <em>connection</em> feels effortless.
+          </h1>
+          <p>
+            Mbogi Link brings your people, stories, and communities together in
+            a beautifully quiet corner of the internet.
+          </p>
+          <div className="hero-actions">
+            <Link className="primary-link" to="/signup">
+              Start connecting <HiArrowRight />
+            </Link>
+            <Link className="ghost-link" to="/login">
+              Welcome back
+            </Link>
+          </div>
+          <div className="social-proof">
+            <strong>12k+</strong>
+            <span>people making space for what matters</span>
+          </div>
+        </div>
+        <div className="hero-art">
+          <div className="art-card art-card--back">A better kind of feed</div>
+          <div className="art-card art-card--front">
+            <span className="art-avatar">✦</span>
+            <p>“A little corner for the people and ideas I love.”</p>
+            <div>
+              <strong>Olivia James</strong>
+              <small>just now</small>
+            </div>
+          </div>
+          <i className="glow glow--one" />
+          <i className="glow glow--two" />
+        </div>
+      </section>
+      <section className="feature-grid">
+        {features.map(([Icon, title, text]) => (
+          <article key={title}>
+            <Icon />
+            <h2>{title}</h2>
+            <p>{text}</p>
+          </article>
+        ))}
+      </section>
+      <section className="landing-cta">
+        <p className="eyebrow">YOUR PEOPLE ARE HERE</p>
+        <h2>Make your next scroll mean something.</h2>
+        <Link className="primary-link" to="/signup">
+          Create your account <HiArrowRight />
+        </Link>
+      </section>
+      <footer>
+        © {new Date().getFullYear()} Desire Link. Made for connection.
+      </footer>
+    </main>
+  );
+}

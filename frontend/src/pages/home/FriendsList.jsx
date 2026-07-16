@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import BackButton from "../../components/BackButton";
 
 const FriendsList = () => {
   const [friends, setFriends] = useState([]);
@@ -25,6 +26,7 @@ const FriendsList = () => {
 
   return (
     <div className="p-4 bg-gray-900 space-y-4">
+      <BackButton />
       <h2 className="text-lg font-bold text-white">Friends List</h2>
       {friends.length === 0 ? (
         <p className="text-gray-400">No friends yet</p>

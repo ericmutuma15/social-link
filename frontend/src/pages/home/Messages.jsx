@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { FaPlus } from "react-icons/fa";
+import BackButton from "../../components/BackButton";
 
 const Messages = () => {
   const [chats, setChats] = useState([]);
@@ -71,6 +72,7 @@ const Messages = () => {
 
   return (
     <div className="p-4 bg-gray-900 min-h-screen">
+      <BackButton />
       {/* Header with Plus Icon */}
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-xl font-bold text-white">Chats</h2>

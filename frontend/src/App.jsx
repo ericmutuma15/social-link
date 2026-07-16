@@ -28,7 +28,7 @@ const BookmarksPage = lazy(() => import("./pages/BookmarksPage"));
 
 const PlaceholderPage = ({ title, description }) => (
   <section className="surface-card page-intro">
-    <p className="eyebrow">DESIRE LINK</p><h1>{title}</h1><p>{description}</p>
+    <p className="eyebrow">MBOGI LINK</p><h1>{title}</h1><p>{description}</p>
   </section>
 );
 
