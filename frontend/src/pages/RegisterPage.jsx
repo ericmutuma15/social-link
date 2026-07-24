@@ -29,6 +29,7 @@ export default function RegisterPage() {
   const [show, setShow] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [resending, setResending] = useState(false);
   const strength = useMemo(() => score(form.password), [form.password]);
   const submit = async (event) => {
     event.preventDefault();
@@ -51,6 +52,23 @@ export default function RegisterPage() {
       setSubmitting(false);
     }
   };
+  const resendVerification = async () => {
+    if (!form.email) {
+      toast.error("Enter your email so we can resend the verification link.");
+      return;
+    }
+
+    setResending(true);
+    try {
+      const { data } = await api.post("/api/resend-verification", { email: form.email });
+      toast.success(data?.message || "A fresh verification link has been sent.");
+    } catch (error) {
+      toast.error(error.response?.data?.message || "We could not resend the verification link.");
+    } finally {
+      setResending(false);
+    }
+  };
+
   if (success)
     return (
       <section className="auth-card success-card">
@@ -63,6 +81,9 @@ export default function RegisterPage() {
         </p>
         <button className="primary-link" onClick={() => navigate("/login")}>
           Go to sign in
+        </button>
+        <button className="text-link" onClick={resendVerification} disabled={resending}>
+          {resending ? "Sending…" : "Resend verification email"}
         </button>
       </section>
     );

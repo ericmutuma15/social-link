@@ -56,6 +56,7 @@ from app_core.security import (
     client_metadata,
     hash_password,
     make_account_token,
+    mail_delivery_ready,
     read_account_token,
     send_account_email,
     validate_email,
@@ -498,27 +499,38 @@ def register():
     try:
         db.session.add(new_user)
         db.session.flush()
-        can_send_mail = bool(app.config.get("MAIL_SERVER") and app.config.get("MAIL_SERVER").strip())
-        if can_send_mail:
+        verification_sent = False
+        mail_ready, _ = mail_delivery_ready()
+        if mail_ready:
             token = make_account_token(new_user.id, "verify")
             new_user.verification_token = hashlib.sha256(token.encode()).hexdigest()
             new_user.verification_sent_at = datetime.utcnow()
             verify_url = f"{app.config['FRONTEND_URL'].rstrip('/')}/verify-email?token={token}"
-            if not send_account_email("Verify your Mbogi account", email, f"Verify your email within 24 hours: {verify_url}"):
+            verification_sent = send_account_email("Verify your Mbogi account", email, f"Verify your email within 24 hours: {verify_url}")
+            if not verification_sent:
                 app.logger.warning("Verification email could not be delivered for %s", email)
-                new_user.is_verified = False
-            else:
-                new_user.is_verified = False
         else:
-            new_user.is_verified = True
+            app.logger.warning("Skipping verification email for %s because SMTP delivery is not configured.", email)
+
+        new_user.is_verified = False
+        if not verification_sent:
             new_user.verification_token = None
             new_user.verification_sent_at = None
         db.session.commit()
         audit("auth.register", new_user.id)
         db.session.commit()
-        if new_user.is_verified:
-            return api_response({"email": email}, "Account created successfully. You can sign in right away.", 201)
-        return api_response({"email": email}, "Account created. Please verify your email before logging in.", 201)
+        response_payload = {
+            "email": email,
+            "requires_verification": True,
+            "verification_sent": verification_sent,
+        }
+        if verification_sent:
+            return api_response(response_payload, "Account created. Please verify your email before logging in.", 201)
+        return api_response(
+            response_payload,
+            "Account created, but we could not send a verification email. Please use the resend option after mail is configured.",
+            201,
+        )
 
     except Exception as e:
         db.session.rollback()
@@ -609,11 +621,16 @@ def resend_verification():
         token = make_account_token(user.id, "verify")
         user.verification_token = hashlib.sha256(token.encode()).hexdigest()
         user.verification_sent_at = datetime.utcnow()
-        if not send_account_email("Verify your Mbogi account", email, f"Verify your email within 24 hours: {app.config['FRONTEND_URL'].rstrip('/')}/verify-email?token={token}"):
+        sent = send_account_email("Verify your Mbogi account", email, f"Verify your email within 24 hours: {app.config['FRONTEND_URL'].rstrip('/')}/verify-email?token={token}")
+        if not sent:
             app.logger.warning("Verification email could not be delivered for %s", email)
+            return api_response(message="We could not send a verification email right now. Please try again later or contact support.", status=503)
         audit("auth.verification_resent", user.id)
         db.session.commit()
-    return api_response(message="If that account needs verification, we sent a new link.")
+        return api_response(data={"email": email, "sent": True}, message="A fresh verification link has been sent.")
+    if user and user.is_verified:
+        return api_response(message="This account is already verified.", status=400)
+    return api_response(message="If that account needs verification, we can send a new link once the email address exists.")
 
 
 @app.route("/api/forgot-password", methods=["POST"])

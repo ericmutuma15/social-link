@@ -82,18 +82,34 @@ def client_metadata() -> dict[str, str | None]:
     return {"ip_address": request.headers.get("X-Forwarded-For", request.remote_addr), "user_agent": request.user_agent.string[:500]}
 
 
-def send_account_email(subject: str, recipient: str, body: str) -> bool:
-    """Send mail when configured; log safely in local development otherwise."""
-    mail = current_app.extensions.get("mail")
-    if mail and current_app.config.get("MAIL_SERVER"):
-        try:
-            message = MailMessage(subject=subject, recipients=[recipient], body=body)
-            message.sender = current_app.config.get("MAIL_DEFAULT_SENDER")
-            mail.send(message)
-            return True
-        except Exception:
-            current_app.logger.exception("Account email delivery failed for %s", recipient)
-            return False
+def mail_delivery_ready() -> tuple[bool, str | None]:
+    """Return whether the app has enough SMTP configuration to send verification mail."""
+    server = (current_app.config.get("MAIL_SERVER") or "").strip()
+    username = (current_app.config.get("MAIL_USERNAME") or "").strip()
+    password = (current_app.config.get("MAIL_PASSWORD") or "").strip()
 
-    current_app.logger.info("Account email prepared for %s: %s", recipient, subject)
-    return True
+    if not server or not username or not password:
+        return False, "Email delivery is not configured for this environment."
+    return True, None
+
+
+def send_account_email(subject: str, recipient: str, body: str) -> bool:
+    """Send mail when configured; otherwise log the failure and return False."""
+    ready, reason = mail_delivery_ready()
+    if not ready:
+        current_app.logger.warning("Account email not sent for %s: %s", recipient, reason)
+        return False
+
+    mail = current_app.extensions.get("mail")
+    if mail is None:
+        current_app.logger.warning("Account email not sent for %s because Flask-Mail is unavailable.", recipient)
+        return False
+
+    try:
+        message = MailMessage(subject=subject, recipients=[recipient], body=body)
+        message.sender = current_app.config.get("MAIL_DEFAULT_SENDER")
+        mail.send(message)
+        return True
+    except Exception:
+        current_app.logger.exception("Account email delivery failed for %s", recipient)
+        return False

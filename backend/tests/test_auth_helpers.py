@@ -77,6 +77,30 @@ def test_profile_update_without_name_preserves_existing_profile_fields():
             assert user.location == "Nairobi"
 
 
+def test_register_returns_verification_status(monkeypatch):
+    app_module = importlib.import_module("app")
+
+    def fake_send_email(subject, recipient, body):
+        return True
+
+    monkeypatch.setattr(app_module, "send_account_email", fake_send_email)
+
+    with app_module.app.test_client() as client:
+        response = client.post(
+            "/api/register",
+            json={
+                "name": "Verification User",
+                "email": "verification@example.com",
+                "password": "StrongPassword123!",
+            },
+        )
+
+        assert response.status_code == 201
+        payload = response.get_json()
+        assert payload["data"]["requires_verification"] is True
+        assert payload["data"]["verification_sent"] is True
+
+
 def test_google_verification_accepts_boolean_email_verified(monkeypatch):
     app_module = importlib.import_module("app")
     app_module.app.config["GOOGLE_CLIENT_ID"] = "test-client"

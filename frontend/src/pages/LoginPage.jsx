@@ -9,6 +9,7 @@ export default function LoginPage() {
   const [form, setForm] = useState({ email: "", password: "", remember: true });
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [resending, setResending] = useState(false);
   const googleInitializedRef = useRef(false);
   const { loadSession } = useAuth();
   const navigate = useNavigate();
@@ -116,6 +117,23 @@ export default function LoginPage() {
       setSubmitting(false);
     }
   };
+
+  const resendVerification = async () => {
+    if (!form.email) {
+      toast.error("Enter your email so we can resend the verification link.");
+      return;
+    }
+
+    setResending(true);
+    try {
+      const { data } = await api.post("/api/resend-verification", { email: form.email });
+      toast.success(data?.message || "A fresh verification link is on its way.");
+    } catch (error) {
+      toast.error(error.response?.data?.message || "We could not resend the verification link.");
+    } finally {
+      setResending(false);
+    }
+  };
   return (
     <section className="auth-card">
       <Link to="/" className="brand auth-brand">
@@ -175,6 +193,9 @@ export default function LoginPage() {
         </div>
         <button className="primary-link form-submit" disabled={submitting}>
           {submitting ? "Signing in…" : "Sign in"}
+        </button>
+        <button type="button" className="text-link" onClick={resendVerification} disabled={resending || submitting}>
+          {resending ? "Sending…" : "Resend verification email"}
         </button>
       </form>
       <div className="divider">
