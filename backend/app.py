@@ -47,6 +47,8 @@ from werkzeug.utils import secure_filename
 
 from sqlalchemy.orm import joinedload, aliased
 from sqlalchemy import case, inspect
+from io import BytesIO
+from flask import send_file, Response
 
 from itsdangerous import URLSafeTimedSerializer
 
@@ -287,7 +289,13 @@ def create_or_get_oauth_user(email, name):
 
 with app.app_context():
     db.create_all()
-    ensure_default_user()
+    try:
+        ensure_default_user()
+    except Exception as e:
+        # During alembic/autogenerate runs the DB schema may be older than
+        # the current models (new columns). Avoid failing import-time
+        # initialization — migrations should be applied manually.
+        app.logger.warning("Skipping ensure_default_user during startup: %s", e)
 
 
 def audit(action, user_id=None, **metadata):
@@ -886,6 +894,35 @@ def logout():
 def serve_image(filename):
     return send_from_directory(os.path.join(app.root_path, 'static/images'), filename)
 
+
+# Serve avatar from DB or fall back to static file
+@app.route('/api/user/<int:user_id>/avatar')
+def get_user_avatar(user_id):
+    user = User.query.get(user_id)
+    if not user:
+        return Response(status=404)
+    # Prefer DB-stored blob
+    if getattr(user, 'avatar_data', None):
+        mime = getattr(user, 'avatar_mime') or 'image/png'
+        return send_file(BytesIO(user.avatar_data), mimetype=mime)
+    # Fallback to static filename
+    if user.picture:
+        return send_from_directory(os.path.join(app.root_path, 'static/images'), user.picture)
+    return Response(status=404)
+
+
+@app.route('/api/user/<int:user_id>/cover')
+def get_user_cover(user_id):
+    user = User.query.get(user_id)
+    if not user:
+        return Response(status=404)
+    if getattr(user, 'cover_photo_data', None):
+        mime = getattr(user, 'cover_photo_mime') or 'image/png'
+        return send_file(BytesIO(user.cover_photo_data), mimetype=mime)
+    if user.cover_photo:
+        return send_from_directory(os.path.join(app.root_path, 'static/images'), user.cover_photo)
+    return Response(status=404)
+
 @app.route('/<filename>')
 def static_files(filename):
     return send_from_directory(os.path.join(app.root_path, 'static/uploads'), filename)
@@ -1001,7 +1038,9 @@ def create_workspace_user():
         if not allowed_file(picture.filename):
             return jsonify({"error": "Profile image must be a PNG, JPG, JPEG, or GIF"}), 400
         picture_name = f"{secrets.token_hex(8)}_{secure_filename(picture.filename)}"
-        picture.save(os.path.join(app.config["UPLOAD_FOLDER"], picture_name))
+        images_folder = os.path.join(app.root_path, 'static', 'images')
+        os.makedirs(images_folder, exist_ok=True)
+        picture.save(os.path.join(images_folder, picture_name))
     user = User(
         name=name, email=email, password=generate_password_hash(password), picture=picture_name,
         role=request.form.get("role") or "Member", department=request.form.get("department") or None,
@@ -1045,8 +1084,8 @@ def get_current_user():
             'description': user.description,
             'location': user.location,
             'picture': picture_url,
-            'avatar': public_profile_url(user.avatar),
-            'cover_photo': public_profile_url(user.cover_photo),
+            'avatar': url_for('get_user_avatar', user_id=user.id, _external=True),
+            'cover_photo': url_for('get_user_cover', user_id=user.id, _external=True),
             'phone_number': user.phone_number,
             'website': user.website,
             'occupation': user.occupation,
@@ -1173,24 +1212,48 @@ def update_profile():
         if not user:
             return jsonify({'error': 'User not found'}), 404
 
-        upload_folder = app.config['UPLOAD_FOLDER']
-        if not os.path.exists(upload_folder):
-            os.makedirs(upload_folder)
+        # Ensure images are saved in `static/images` and also store bytes in DB
+        images_folder = os.path.join(app.root_path, 'static', 'images')
+        if not os.path.exists(images_folder):
+            os.makedirs(images_folder, exist_ok=True)
 
         if picture:
             if not allowed_file(picture.filename):
                 return api_response(message="Profile image must be PNG, JPG, JPEG, or GIF", status=422)
             filename = f"{secrets.token_hex(8)}_{secure_filename(picture.filename)}"
-            image_path = os.path.join(upload_folder, filename)
+            image_path = os.path.join(images_folder, filename)
             picture.save(image_path)
-            user.picture = f'images/{filename}'
+            # store filename for backward compatibility
+            user.picture = filename
+            try:
+                picture.stream.seek(0)
+                user.avatar_data = picture.read() or open(image_path, 'rb').read()
+            except Exception:
+                # best-effort: fall back to saved file bytes
+                try:
+                    with open(image_path, 'rb') as f:
+                        user.avatar_data = f.read()
+                except Exception:
+                    user.avatar_data = None
+            user.avatar_mime = (picture.mimetype or 'image/png')
 
         if cover_photo:
             if not allowed_file(cover_photo.filename):
                 return api_response(message="Cover image must be PNG, JPG, JPEG, or GIF", status=422)
             filename = f"{secrets.token_hex(8)}_{secure_filename(cover_photo.filename)}"
-            cover_photo.save(os.path.join(upload_folder, filename))
-            user.cover_photo = f'images/{filename}'
+            cover_path = os.path.join(images_folder, filename)
+            cover_photo.save(cover_path)
+            user.cover_photo = filename
+            try:
+                cover_photo.stream.seek(0)
+                user.cover_photo_data = cover_photo.read() or open(cover_path, 'rb').read()
+            except Exception:
+                try:
+                    with open(cover_path, 'rb') as f:
+                        user.cover_photo_data = f.read()
+                except Exception:
+                    user.cover_photo_data = None
+            user.cover_photo_mime = (cover_photo.mimetype or 'image/png')
 
         if name is not None:
             user.name = name.strip() if str(name).strip() else user.name

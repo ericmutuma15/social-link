@@ -40,67 +40,20 @@ const LoadingPage = () => {
 
       : "text-slate-500";
   return (
+    <section className="workspace-page loading-page">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.4 }}
+        className="w-full flex items-center justify-center px-4"
+      >
 
-  <motion.div
-
-    initial={{
-      opacity: 0
-    }}
-
-    animate={{
-      opacity: 1
-    }}
-
-    transition={{
-      duration: 0.4
-    }}
-
-    className={`
-      min-h-screen
-      w-full
-      flex
-      items-center
-      justify-center
-      px-4
-      ${pageClass}
-    `}
-
-  >
-
-
-    <motion.div
-
-      initial={{
-        scale: 0.9,
-        opacity: 0
-      }}
-
-      animate={{
-        scale: 1,
-        opacity: 1
-      }}
-
-      transition={{
-        duration: 0.4
-      }}
-
-      className={`
-        w-full
-        max-w-md
-        rounded-3xl
-        border
-        p-8
-        flex
-        flex-col
-        items-center
-        justify-center
-        text-center
-        backdrop-blur-xl
-        shadow-2xl
-        ${cardClass}
-      `}
-
-    >
+        <motion.div
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ duration: 0.4 }}
+          className={`w-full max-w-md rounded-3xl p-8 flex flex-col items-center justify-center text-center backdrop-blur-xl shadow-2xl ${cardClass} surface-card`}
+        >
 
 
 
@@ -223,7 +176,9 @@ const LoadingPage = () => {
 
   </motion.div>
 
-);
+    </section>
+
+  );
 };
 
 export default LoadingPage;

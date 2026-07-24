@@ -43,14 +43,14 @@ export default function Profile() {
 
   return <section className="workspace-page profile-page">
     <BackButton />
-    <div className="profile-cover" />
+    <div className="profile-cover" style={user.cover_photo ? {backgroundImage: `url(${user.cover_photo})`, backgroundSize: 'cover', backgroundPosition: 'center'} : {}} />
     <article className="surface-card profile-summary">
       <img className="profile-avatar" src={pictureUrl(user.picture)} alt="" />
       <div className="profile-summary__copy">
         <div className="profile-name-row"><h1>{user.name}</h1><span className="profile-role-badge">{user.role || "Member"}</span>{user.is_friend && <span className="profile-friend-badge">Friend</span>}</div>
         <p className="profile-location"><HiOutlineLocationMarker /> {user.location || "Location not set"}</p>
         <p className="profile-bio">{user.description || "No bio has been added yet."}</p>
-        {(user.occupation || user.company || user.website) && <div className="profile-details">{user.occupation && <span><HiOutlineBriefcase /> {user.occupation}</span>}{user.company && <span><HiOutlineOfficeBuilding /> {user.company}</span>}{user.website && <a href={user.website.startsWith("http") ? user.website : `https://${user.website}`} target="_blank" rel="noreferrer"><HiOutlineGlobeAlt /> {user.website.replace(/^https?:\/\//, "")}</a>}</div>}
+        {(user.occupation || user.company || user.website || user.phone_number || (user.social_links && Object.keys(user.social_links).length>0)) && <div className="profile-details">{user.occupation && <span><HiOutlineBriefcase /> {user.occupation}</span>}{user.company && <span><HiOutlineOfficeBuilding /> {user.company}</span>}{user.website && <a href={user.website.startsWith("http") ? user.website : `https://${user.website}`} target="_blank" rel="noreferrer"><HiOutlineGlobeAlt /> {user.website.replace(/^https?:\/\//, "")}</a>}{user.phone_number && <span><HiOutlineChatAlt2 /> {user.phone_number}</span>}{user.social_links && Object.keys(user.social_links).length>0 && <span className="social-links">{Object.entries(user.social_links).map(([k,v]) => <a key={k} href={v} target="_blank" rel="noreferrer" className="ml-2">{k}</a>)}</span>}</div>}
       </div>
       {ownProfile ? <Link className="button-primary profile-action" to="/edit-profile"><HiOutlinePencil /> Edit profile</Link> : <button className="button-primary profile-action" onClick={() => navigate(`/chat/${user.id}`)}><HiOutlineChatAlt2 /> Message</button>}
     </article>

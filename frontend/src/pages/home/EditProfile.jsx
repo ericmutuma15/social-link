@@ -3,15 +3,16 @@ import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 
 import {
-  FaArrowLeft,
   FaCamera,
   FaMapMarkerAlt,
   FaUser,
   FaSave,
   FaImage,
 } from "react-icons/fa";
+import { HiOutlineBriefcase, HiOutlineOfficeBuilding, HiOutlinePhotograph } from "react-icons/hi";
 
 import { useTheme } from "../../context/ThemeContext";
+import BackButton from "../../components/BackButton";
 
 const EditProfile = () => {
   const navigate = useNavigate();
@@ -27,6 +28,18 @@ const EditProfile = () => {
   const [location, setLocation] = useState("");
 
   const [picture, setPicture] = useState(null);
+  const [coverPhoto, setCoverPhoto] = useState(null);
+  const [coverPreview, setCoverPreview] = useState(null);
+
+  const [username, setUsername] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [website, setWebsite] = useState("");
+  const [occupation, setOccupation] = useState("");
+  const [company, setCompany] = useState("");
+  const [timezoneValue, setTimezoneValue] = useState("");
+  const [languageValue, setLanguageValue] = useState("");
+  const [themePreference, setThemePreference] = useState("");
+  const [socialLinksText, setSocialLinksText] = useState("");
 
   const [preview, setPreview] = useState("/default-profile.png");
 
@@ -69,6 +82,16 @@ const EditProfile = () => {
         setLocation(data.location || "");
 
         setPreview(data.picture || "/default-profile.png");
+        setCoverPreview(data.cover_photo || null);
+        setUsername(data.username || "");
+        setPhoneNumber(data.phone_number || "");
+        setWebsite(data.website || "");
+        setOccupation(data.occupation || "");
+        setCompany(data.company || "");
+        setTimezoneValue(data.timezone || "UTC");
+        setLanguageValue(data.language || "en");
+        setThemePreference(data.theme_preference || "system");
+        setSocialLinksText(data.social_links ? JSON.stringify(data.social_links) : "");
       } else {
         console.error("Failed to fetch user details");
       }
@@ -89,6 +112,14 @@ const EditProfile = () => {
       setPicture(file);
 
       setPreview(URL.createObjectURL(file));
+    }
+  };
+
+  const handleCoverChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setCoverPhoto(file);
+      setCoverPreview(URL.createObjectURL(file));
     }
   };
 
@@ -149,6 +180,16 @@ const EditProfile = () => {
       if (trimmedDescription) formData.append("description", trimmedDescription);
       if (trimmedLocation) formData.append("location", trimmedLocation);
       if (picture) formData.append("picture", picture);
+      if (coverPhoto) formData.append("cover_photo", coverPhoto);
+      if (username) formData.append("username", username.trim());
+      if (phoneNumber) formData.append("phone_number", phoneNumber.trim());
+      if (website) formData.append("website", website.trim());
+      if (occupation) formData.append("occupation", occupation.trim());
+      if (company) formData.append("company", company.trim());
+      if (timezoneValue) formData.append("timezone", timezoneValue);
+      if (languageValue) formData.append("language", languageValue);
+      if (themePreference) formData.append("theme_preference", themePreference);
+      if (socialLinksText) formData.append("social_links", socialLinksText);
 
       const response = await fetch(`${baseUrl}/api/profile`, {
         method: "POST",
@@ -184,31 +225,17 @@ const EditProfile = () => {
     }
   };
   return (
-    <motion.div
-      initial={{
-        opacity: 0,
-        y: 20,
-      }}
-      animate={{
-        opacity: 1,
-        y: 0,
-      }}
-      transition={{
-        duration: 0.5,
-      }}
-      className={`min-h-screen ${pageClass} transition-colors duration-300 px-4 py-6 sm:px-6 lg:px-8`}
-    >
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
-        {/* Back Button */}
+    <section className="workspace-page edit-profile-page">
+      <header className="page-heading">
+        <div>
+          <p className="eyebrow">PROFILE</p>
+          <h1>Edit profile</h1>
+          <p className="muted">Update your personal information and customize your profile</p>
+        </div>
+        <BackButton fallback="/profile" label="Back to Profile" />
+      </header>
 
-        <button
-          onClick={() => navigate("/profile")}
-          className={`flex w-fit items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition ${theme === "dark" ? "border-slate-700 bg-slate-900/70 text-slate-100 hover:bg-slate-800" : "border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-100"}`}
-        >
-          <FaArrowLeft />
-
-          <span>Back to Profile</span>
-        </button>
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
 
         {/* Main Card */}
 
@@ -224,7 +251,7 @@ const EditProfile = () => {
           transition={{
             delay: 0.1,
           }}
-          className={`overflow-hidden rounded-[28px] border backdrop-blur-xl ${cardClass}`}
+          className={`overflow-hidden rounded-[28px] border backdrop-blur-xl ${cardClass} surface-card`}
         >
           {/* Header */}
 
@@ -329,6 +356,62 @@ const EditProfile = () => {
                 placeholder="Enter your name"
                 className={`w-full rounded-2xl border border-slate-200/70 bg-slate-50/70 p-4 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 ${inputClass}`}
               />
+            </div>
+
+            {/* Username */}
+
+            <div>
+              <label className="flex items-center gap-2 mb-2 font-semibold text-sm">
+                <FaUser className="text-cyan-500" />
+                Username
+              </label>
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="Choose a username"
+                className={`w-full rounded-2xl border border-slate-200/70 bg-slate-50/70 p-4 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 ${inputClass}`}
+              />
+            </div>
+
+            {/* Contact & Work */}
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <label className="flex items-center gap-2 mb-2 font-semibold text-sm"><FaImage className="text-cyan-500" /> Phone</label>
+                <input type="text" value={phoneNumber} onChange={(e) => setPhoneNumber(e.target.value)} placeholder="Phone number" className={`w-full rounded-2xl border border-slate-200/70 bg-slate-50/70 p-4 ${inputClass}`} />
+              </div>
+              <div>
+                <label className="flex items-center gap-2 mb-2 font-semibold text-sm"><FaImage className="text-cyan-500" /> Website</label>
+                <input type="text" value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://your-site.example" className={`w-full rounded-2xl border border-slate-200/70 bg-slate-50/70 p-4 ${inputClass}`} />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <label className="flex items-center gap-2 mb-2 font-semibold text-sm"><HiOutlineBriefcase className="text-cyan-500" /> Occupation</label>
+                <input type="text" value={occupation} onChange={(e) => setOccupation(e.target.value)} placeholder="Your role or title" className={`w-full rounded-2xl border border-slate-200/70 bg-slate-50/70 p-4 ${inputClass}`} />
+              </div>
+              <div>
+                <label className="flex items-center gap-2 mb-2 font-semibold text-sm"><HiOutlineOfficeBuilding className="text-cyan-500" /> Company</label>
+                <input type="text" value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Company" className={`w-full rounded-2xl border border-slate-200/70 bg-slate-50/70 p-4 ${inputClass}`} />
+              </div>
+            </div>
+
+            {/* Cover photo upload */}
+            <div>
+              <label className="flex items-center gap-2 mb-2 font-semibold text-sm"><HiOutlinePhotograph className="text-cyan-500" /> Cover photo</label>
+              <div className="mb-2">
+                {coverPreview ? <img src={coverPreview} alt="Cover preview" className="w-full rounded-lg object-cover h-40" /> : <div className="w-full rounded-lg bg-slate-100 h-40 flex items-center justify-center text-sm text-slate-500">No cover photo</div>}
+              </div>
+              <input type="file" accept="image/*" onChange={handleCoverChange} />
+            </div>
+
+            {/* Social links (JSON) */}
+            <div>
+              <label className="flex items-center gap-2 mb-2 font-semibold text-sm"><FaImage className="text-cyan-500" /> Social links (JSON)</label>
+              <textarea value={socialLinksText} onChange={(e) => setSocialLinksText(e.target.value)} rows={3} placeholder='{"twitter":"https://twitter.com/you","linkedin":"https://..."}' className={`w-full rounded-2xl border border-slate-200/70 bg-slate-50/70 p-4 resize-none ${inputClass}`} />
+              <p className={`text-xs mt-2 ${secondaryText}`}>Provide social links as JSON object (optional).</p>
             </div>
 
             {/* Description Field */}
@@ -479,7 +562,7 @@ const EditProfile = () => {
           </form>
         </motion.div>
       </div>
-    </motion.div>
+    </section>
   );
 };
 
