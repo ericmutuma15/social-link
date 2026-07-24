@@ -68,20 +68,27 @@ logging.basicConfig(level=logging.INFO)
 
 app = Flask(__name__, static_folder="static")
 app.config.from_object(Config)
+# Normalize CORS origins from environment to avoid whitespace mismatches
+cors_env = os.getenv(
+    "CORS_ORIGINS",
+    "http://localhost:5173,http://127.0.0.1:5173,https://desire-link-app.vercel.app,https://mbogi-link.vercel.app",
+)
+allowed_origins = [o.strip() for o in cors_env.split(",") if o.strip()]
+
 Talisman(
     app,
     force_https=app.config.get("APP_ENV") == "production",
     strict_transport_security=app.config.get("APP_ENV") == "production",
-    content_security_policy={"default-src": ["'self'"], "img-src": ["'self'", "data:", "https:"], "media-src": ["'self'", "https:"], "connect-src": ["'self'", *os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")]},
+    content_security_policy={
+        "default-src": ["'self'"],
+        "img-src": ["'self'", "data:", "https:"],
+        "media-src": ["'self'", "https:"],
+        "connect-src": ["'self'", *allowed_origins],
+    },
 )
 limiter = Limiter(key_func=get_remote_address, app=app, default_limits=["300 per hour"])
 
 # Enable Cross-Origin Resource Sharing for React frontend
-allowed_origins = os.getenv(
-    "CORS_ORIGINS",
-    "http://localhost:5173,http://127.0.0.1:5173,https://desire-link-app.vercel.app,https://mbogi-link.vercel.app",
-).split(",")
-
 CORS(
     app,
     resources={r"/*": {"origins": allowed_origins}},
