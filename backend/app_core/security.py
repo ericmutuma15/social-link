@@ -13,6 +13,7 @@ import bcrypt
 from flask import current_app, request
 from flask_mail import Message as MailMessage
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+import socket
 from werkzeug.security import check_password_hash
 
 EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
@@ -108,8 +109,17 @@ def send_account_email(subject: str, recipient: str, body: str) -> bool:
     try:
         message = MailMessage(subject=subject, recipients=[recipient], body=body)
         message.sender = current_app.config.get("MAIL_DEFAULT_SENDER")
-        mail.send(message)
-        return True
+
+        # Use a short socket timeout for SMTP operations so a slow/unreachable
+        # mail server doesn't block a worker for long and cause a gunicorn
+        # worker timeout. Restore the previous timeout afterwards.
+        prev_timeout = socket.getdefaulttimeout()
+        socket.setdefaulttimeout(int(current_app.config.get("MAIL_SOCKET_TIMEOUT", 5)))
+        try:
+            mail.send(message)
+            return True
+        finally:
+            socket.setdefaulttimeout(prev_timeout)
     except Exception:
         current_app.logger.exception("Account email delivery failed for %s", recipient)
         return False
