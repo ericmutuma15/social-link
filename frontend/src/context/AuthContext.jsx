@@ -8,8 +8,12 @@ export function AuthProvider({ children }) {
     catch { setUser(null); return null; }
   }, []);
   const loadSession = useCallback(async () => {
-    try { const { data } = await api.get("/api/current_user"); setUser(data); }
-    catch { await refreshSession(); } finally { setLoading(false); }
+    try {
+      const { data: session } = await api.get("/api/session");
+      if (!session.data?.authenticated) { setUser(null); return; }
+      const { data } = await api.get("/api/current_user");
+      setUser(data);
+    } catch { setUser(null); } finally { setLoading(false); }
   }, [refreshSession]);
   useEffect(() => { loadSession(); }, [loadSession]);
   const logout = useCallback(async () => { try { await api.post("/api/logout"); } finally { setUser(null); } }, []);

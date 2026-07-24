@@ -11,6 +11,8 @@ export default function PostCard({
   onToggleComments,
   onCommentChange,
   onCommentSubmit,
+  onCommentDelete,
+  onCommentEdit,
   onMediaClick,
 }) {
   const media = post.media_url;
@@ -71,6 +73,8 @@ export default function PostCard({
           baseUrl={baseUrl}
           onChange={(value) => onCommentChange(post.id, value)}
           onSubmit={() => onCommentSubmit(post.id)}
+          onDelete={comment => onCommentDelete?.(post.id, comment)}
+          onEdit={comment => onCommentEdit?.(post.id, comment)}
         />
       )}
     </article>

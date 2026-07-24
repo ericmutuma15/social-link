@@ -1,4 +1,5 @@
-import { Link } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 import { HiArrowRight, HiChatAlt2, HiHeart, HiUserGroup } from "react-icons/hi";
 const features = [
   [
@@ -18,6 +19,11 @@ const features = [
   ],
 ];
 export default function LandingPage() {
+  const { isAuthenticated, loading } = useAuth();
+
+  if (loading) return null;
+  if (isAuthenticated) return <Navigate to="/home" replace />;
+
   return (
     <main className="landing">
       <nav className="landing-nav">

@@ -12,7 +12,8 @@ import toast from "react-hot-toast";
 import api from "../services/apiClient";
 const score = (password) =>
   [
-    password.length >= 8,
+    password.length >= 12,
+    /[a-z]/.test(password),
     /[A-Z]/.test(password),
     /[0-9]/.test(password),
     /[^A-Za-z0-9]/.test(password),
@@ -33,7 +34,7 @@ export default function RegisterPage() {
     event.preventDefault();
     if (form.password !== form.confirmPassword)
       return toast.error("Passwords need to match.");
-    if (strength < 2) return toast.error("Choose a stronger password.");
+    if (strength < 4) return toast.error("Use 12+ characters with uppercase, lowercase, a number, and a symbol.");
     setSubmitting(true);
     try {
       await api.post("/api/register", {
@@ -44,7 +45,7 @@ export default function RegisterPage() {
       setSuccess(true);
     } catch (error) {
       toast.error(
-        error.response?.data?.message || "We couldn’t create your account.",
+        error.response?.data?.errors?.[0] || error.response?.data?.message || "We couldn’t create your account.",
       );
     } finally {
       setSubmitting(false);
@@ -55,13 +56,13 @@ export default function RegisterPage() {
       <section className="auth-card success-card">
         <HiCheckCircle />
         <p className="eyebrow">YOU’RE IN</p>
-        <h1>Your space is ready.</h1>
+        <h1>Check your inbox.</h1>
         <p>
-          We’ve created your Desire Link account. Sign in to begin shaping your
-          feed.
+          We’ve created your Desire Link account. Verify your email before you
+          sign in to begin shaping your feed.
         </p>
         <button className="primary-link" onClick={() => navigate("/login")}>
-          Continue to sign in
+          Go to sign in
         </button>
       </section>
     );
@@ -110,7 +111,8 @@ export default function RegisterPage() {
               type={show ? "text" : "password"}
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
-              placeholder="At least 8 characters"
+              minLength="12"
+              placeholder="12+ characters, number, symbol"
             />
             <button
               className="password-toggle"
@@ -123,13 +125,13 @@ export default function RegisterPage() {
         </label>
         <div className="strength">
           <div>
-            {[1, 2, 3, 4].map((i) => (
+            {[1, 2, 3, 4, 5].map((i) => (
               <i key={i} className={i <= strength ? "active" : ""} />
             ))}
           </div>
           <small>
             {
-              ["Choose a password", "Fair", "Good", "Strong", "Excellent"][
+              ["Add 12+ characters", "Add every character type", "Keep going", "Almost there", "One more step", "Strong password"][
                 strength
               ]
             }

@@ -5,6 +5,8 @@ import BackButton from "../components/BackButton";
 import PostCard from "../components/PostCard";
 import SkeletonLoader from "../components/SkeletonLoader";
 import { useBookmarks } from "../context/BookmarkContext";
+import FriendSuggestions from "../components/FriendSuggestions";
+import toast from "react-hot-toast";
 
 export default function ExplorePage() {
   const [items, setItems] = useState([]);
@@ -50,7 +52,8 @@ export default function ExplorePage() {
     }));
     try {
       const { data } = await api.post(`/api/posts/${id}/like`);
-      update(id, () => ({ likes: data.likes }));
+      const result = data.data || data;
+      update(id, () => ({ likes: result.likes, isLiked: result.liked }));
     } catch {
       update(id, () => ({ isLiked: post.isLiked, likes: post.likes }));
     }
@@ -58,9 +61,11 @@ export default function ExplorePage() {
   const bookmark = async (post) => {
     update(post.id, (item) => ({ bookmarked: !item.bookmarked }));
     try {
-      await toggleBookmark(post);
+      const saved = await toggleBookmark(post);
+      toast.success(saved ? "🔖 Saved to bookmarks" : "🗑 Removed from bookmarks");
     } catch {
       update(post.id, () => ({ bookmarked: post.bookmarked }));
+      toast.error("Could not update bookmark.");
     }
   };
   return (
@@ -71,7 +76,7 @@ export default function ExplorePage() {
           <p className="eyebrow">DISCOVER</p>
           <h1>Explore</h1>
         </div>
-        <Link className="text-link" to="/add-users">
+        <Link className="text-link" to="/people">
           Find people
         </Link>
       </div>
@@ -86,6 +91,7 @@ export default function ExplorePage() {
           <option value="popular">Popular</option>
         </select>
       </div>
+      <FriendSuggestions />
       {loading && !items.length ? (
         <SkeletonLoader />
       ) : (

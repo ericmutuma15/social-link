@@ -4,6 +4,7 @@ import BackButton from "../components/BackButton";
 import PostCard from "../components/PostCard";
 import SkeletonLoader from "../components/SkeletonLoader";
 import { useBookmarks } from "../context/BookmarkContext";
+import toast from "react-hot-toast";
 
 export default function BookmarksPage() {
   const [posts, setPosts] = useState([]);
@@ -35,8 +36,10 @@ export default function BookmarksPage() {
 
     try {
       await toggleBookmark(post);
+      toast.success("🗑 Removed from bookmarks");
     } catch {
       setPosts(items => [post, ...items]);
+      toast.error("Could not remove bookmark.");
     }
   };
 

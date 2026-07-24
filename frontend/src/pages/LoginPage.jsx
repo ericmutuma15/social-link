@@ -1,23 +1,86 @@
-import { useState } from "react";
-import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { HiEye, HiEyeOff, HiLockClosed, HiMail } from "react-icons/hi";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import { useAuth } from "../context/AuthContext";
-import { firebaseAuth } from "../services/firebase";
 import api from "../services/apiClient";
+
 export default function LoginPage() {
   const [form, setForm] = useState({ email: "", password: "", remember: true });
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const googleInitializedRef = useRef(false);
   const { loadSession } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const destination = location.state?.from?.pathname || "/home";
-  const finish = async () => {
+  const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
+  const finish = useCallback(async () => {
     await loadSession();
     navigate(destination, { replace: true });
-  };
+  }, [destination, loadSession, navigate]);
+  useEffect(() => {
+    if (!googleClientId || typeof window === "undefined") {
+      return undefined;
+    }
+
+    if (window.google?.accounts?.id) {
+      if (!googleInitializedRef.current) {
+        window.google.accounts.id.initialize({
+          client_id: googleClientId,
+          callback: async (response) => {
+            setSubmitting(true);
+            try {
+              await api.post("/api/google-login", { id_token: response.credential });
+              toast.success("Signed in with Google.");
+              await finish();
+            } catch (error) {
+              toast.error(
+                error.response?.data?.message || "Google sign-in did not complete.",
+              );
+            } finally {
+              setSubmitting(false);
+            }
+          },
+        });
+        googleInitializedRef.current = true;
+      }
+      return undefined;
+    }
+
+    const script = document.createElement("script");
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.defer = true;
+    script.onload = () => {
+      if (window.google?.accounts?.id && !googleInitializedRef.current) {
+        window.google.accounts.id.initialize({
+          client_id: googleClientId,
+          callback: async (response) => {
+            setSubmitting(true);
+            try {
+              await api.post("/api/google-login", { id_token: response.credential });
+              toast.success("Signed in with Google.");
+              await finish();
+            } catch (error) {
+              toast.error(
+                error.response?.data?.message || "Google sign-in did not complete.",
+              );
+            } finally {
+              setSubmitting(false);
+            }
+          },
+        });
+        googleInitializedRef.current = true;
+      }
+    };
+
+    document.body.appendChild(script);
+    return () => {
+      script.remove();
+    };
+  }, [finish, googleClientId]);
+
   const submit = async (event) => {
     event.preventDefault();
     setSubmitting(true);
@@ -34,21 +97,21 @@ export default function LoginPage() {
       setSubmitting(false);
     }
   };
+
   const google = async () => {
+    if (!googleClientId) {
+      toast.error("Google sign-in is not configured for this app.");
+      return;
+    }
+
+    if (!window.google?.accounts?.id) {
+      toast.error("Google sign-in is not ready yet. Please refresh and try again.");
+      return;
+    }
+
     setSubmitting(true);
     try {
-      const result = await signInWithPopup(
-        firebaseAuth,
-        new GoogleAuthProvider(),
-      );
-      await api.post("/api/google-login", {
-        id_token: await result.user.getIdToken(),
-      });
-      await finish();
-    } catch (error) {
-      toast.error(
-        error.response?.data?.message || "Google sign-in did not complete.",
-      );
+      window.google.accounts.id.prompt();
     } finally {
       setSubmitting(false);
     }
@@ -106,9 +169,9 @@ export default function LoginPage() {
             />{" "}
             Remember me
           </label>
-          <button type="button" className="text-link">
+          <Link to="/forgot-password" className="text-link">
             Forgot password?
-          </button>
+          </Link>
         </div>
         <button className="primary-link form-submit" disabled={submitting}>
           {submitting ? "Signing in…" : "Sign in"}

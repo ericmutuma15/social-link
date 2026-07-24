@@ -1,21 +1,24 @@
+import { Link } from "react-router-dom";
+import { HiOutlinePencil, HiOutlineTrash } from "react-icons/hi";
 export default function CommentSection({
   comments = [],
   value,
   onChange,
   onSubmit,
-  baseUrl,
+  onDelete,
+  onEdit,
 }) {
   return (
     <div className="comment-section">
       {comments.map((comment) => (
         <article key={comment.id} className="comment">
-          <span className="comment-avatar">
-            {comment.user_name?.[0] || "U"}
-          </span>
+          <Link to={`/profile/${comment.user_id}`} className="comment-avatar" aria-label={`${comment.user_name}'s profile`}>
+            {comment.user_photo ? <img src={comment.user_photo} alt="" /> : comment.user_name?.[0] || "U"}
+          </Link>
           <div>
-            <strong>{comment.user_name}</strong>
+            <Link to={`/profile/${comment.user_id}`}><strong>{comment.user_name}</strong></Link>
             <p>{comment.content}</p>
-            <small>{new Date(comment.timestamp).toLocaleString()}</small>
+            <small>{new Date(comment.timestamp).toLocaleString()}</small>{comment.is_owner && <span className="comment-actions"><button onClick={() => onEdit?.(comment)} aria-label="Edit comment"><HiOutlinePencil /></button><button onClick={() => onDelete?.(comment)} aria-label="Delete comment"><HiOutlineTrash /></button></span>}
           </div>
         </article>
       ))}
@@ -25,7 +28,7 @@ export default function CommentSection({
           onChange={(e) => onChange(e.target.value)}
           placeholder="Add a thoughtful reply…"
         />
-        <button onClick={onSubmit}>Reply</button>
+        <button type="button" onClick={onSubmit} disabled={!value?.trim()}>Reply</button>
       </div>
     </div>
   );

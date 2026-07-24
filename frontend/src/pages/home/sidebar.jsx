@@ -61,7 +61,7 @@ const Sidebar = () => {
                 <span className="text-lg font-medium">Messages</span>
               </div>
             </Link>
-            <Link to="/add-users">
+            <Link to="/people">
               <div className="flex items-center space-x-4 p-3 rounded-md hover:bg-gray-800 cursor-pointer">
                 <FaUserFriends className="text-xl" />
                 <span className="text-lg font-medium">Add Friends</span>

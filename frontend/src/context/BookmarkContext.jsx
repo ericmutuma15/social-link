@@ -10,8 +10,9 @@ export function BookmarkProvider({ children }) {
     setBookmarkedIds(previous => { const next = new Set(previous); wasBookmarked ? next.delete(post.id) : next.add(post.id); return next; });
     try {
       const { data } = await api.post(`/api/posts/${post.id}/bookmark`);
-      setBookmarkedIds(previous => { const next = new Set(previous); data.bookmarked ? next.add(post.id) : next.delete(post.id); return next; });
-      return data.bookmarked;
+      const result = data.data || data;
+      setBookmarkedIds(previous => { const next = new Set(previous); result.bookmarked ? next.add(post.id) : next.delete(post.id); return next; });
+      return result.bookmarked;
     } catch (error) {
       setBookmarkedIds(previous => { const next = new Set(previous); wasBookmarked ? next.add(post.id) : next.delete(post.id); return next; });
       throw error;

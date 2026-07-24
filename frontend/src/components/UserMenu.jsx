@@ -1,10 +1,10 @@
 import { Link } from "react-router-dom";
-export default function UserMenu({ open, onLogout }) {
+export default function UserMenu({ open, onLogout, onClose }) {
   return open ? (
     <div className="popover user-popover">
-      <Link to="/profile">View profile</Link>
-      <Link to="/edit-profile">Settings</Link>
-      <button onClick={onLogout}>Log out</button>
+      <Link to="/profile" onClick={onClose}>View profile</Link>
+      <Link to="/settings" onClick={onClose}>Settings</Link>
+      <button onClick={() => { onClose?.(); onLogout(); }}>Log out</button>
     </div>
   ) : null;
 }

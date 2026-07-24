@@ -1,5 +1,6 @@
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta
+import uuid
 # Create uninitialized SQLAlchemy instance to avoid circular imports.
 # The application will call `db.init_app(app)` in `app.py`.
 db = SQLAlchemy()
@@ -10,10 +11,43 @@ class User(db.Model):
     name = db.Column(db.String(100), nullable=False)
     email = db.Column(db.String(100), unique=True, nullable=False)
     password = db.Column(db.String(200), nullable=False)
+    # Legacy password is retained temporarily for a zero-downtime bcrypt migration.
+    password_hash = db.Column(db.String(255), nullable=True)
+    public_id = db.Column(db.String(36), unique=True, nullable=False, default=lambda: str(uuid.uuid4()), index=True)
+    username = db.Column(db.String(50), unique=True, nullable=True, index=True)
     description = db.Column(db.String(500))
     location = db.Column(db.String(255))
     picture = db.Column(db.String(255))
     is_super_user = db.Column(db.Boolean, default=False)
+    role = db.Column(db.String(50), default="Member", nullable=False)
+    department = db.Column(db.String(100))
+    status = db.Column(db.String(20), default="active", nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    last_login = db.Column(db.DateTime, nullable=True)
+    is_verified = db.Column(db.Boolean, default=False, nullable=False, index=True)
+    # Tokens are stored as hashes.  The signed value sent by email is never
+    # persisted, so a database leak cannot be used to verify an account.
+    verification_token = db.Column(db.String(64), nullable=True, index=True)
+    verification_sent_at = db.Column(db.DateTime, nullable=True)
+    reset_token = db.Column(db.String(64), nullable=True, index=True)
+    reset_token_expiry = db.Column(db.DateTime, nullable=True)
+    two_factor_enabled = db.Column(db.Boolean, default=False, nullable=False)
+    avatar = db.Column(db.String(255), nullable=True)
+    cover_photo = db.Column(db.String(255), nullable=True)
+    phone_number = db.Column(db.String(32), nullable=True)
+    website = db.Column(db.String(255), nullable=True)
+    occupation = db.Column(db.String(100), nullable=True)
+    company = db.Column(db.String(100), nullable=True)
+    timezone = db.Column(db.String(64), default="UTC", nullable=False)
+    language = db.Column(db.String(10), default="en", nullable=False)
+    theme_preference = db.Column(db.String(12), default="system", nullable=False)
+    social_links = db.Column(db.JSON, default=dict, nullable=False)
+    settings = db.Column(db.JSON, default=dict, nullable=False)
+    failed_login_attempts = db.Column(db.Integer, default=0, nullable=False)
+    account_locked_until = db.Column(db.DateTime, nullable=True)
+    deleted_at = db.Column(db.DateTime, nullable=True, index=True)
+    last_active = db.Column(db.DateTime, nullable=True, index=True)
 
     # Relationships
     posts = db.relationship('Post', back_populates='user', lazy='dynamic')
@@ -24,6 +58,27 @@ class User(db.Model):
 
     def __repr__(self):
         return f"<User {self.name}>"
+
+
+class TokenBlocklist(db.Model):
+    __tablename__ = "token_blocklist"
+    id = db.Column(db.Integer, primary_key=True)
+    jti = db.Column(db.String(36), unique=True, nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    token_type = db.Column(db.String(10), nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class AuditLog(db.Model):
+    __tablename__ = "audit_logs"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    action = db.Column(db.String(100), nullable=False, index=True)
+    ip_address = db.Column(db.String(64), nullable=True)
+    user_agent = db.Column(db.String(500), nullable=True)
+    metadata_json = db.Column(db.JSON, default=dict, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
 
 
 class Post(db.Model):
@@ -133,7 +188,11 @@ class Message(db.Model):
     media_type = db.Column(db.String(10), nullable=True)  # image, video, audio
     media_url = db.Column(db.String(300), nullable=True)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    is_read = db.Column(db.Boolean, default=False)  # New field to track read status
+    delivered_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    read_at = db.Column(db.DateTime, nullable=True)
+    is_read = db.Column(db.Boolean, default=False, nullable=False)
+    deleted_by_sender = db.Column(db.Boolean, default=False, nullable=False)
+    deleted_by_receiver = db.Column(db.Boolean, default=False, nullable=False)
 
     sender = db.relationship("User", foreign_keys=[sender_id])
     receiver = db.relationship("User", foreign_keys=[receiver_id])
@@ -167,6 +226,8 @@ class Notification(db.Model):
     # friend_request_id can be null for notifications that are not friend-request related
     friend_request_id = db.Column(db.Integer, db.ForeignKey('friend_requests.id'), nullable=True)
     read = db.Column(db.Boolean, default=False)  # New field to track read status
+    archived = db.Column(db.Boolean, default=False, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     # Relationships (optional, but useful)
     friend_request = db.relationship("FriendRequest", backref="notifications")
@@ -185,3 +246,57 @@ class Friendship(db.Model):
     friend = db.relationship("User", foreign_keys=[friend_id], backref="friend_of")
 
     __table_args__ = (db.UniqueConstraint('user_id', 'friend_id', name='unique_friendship'),)
+
+
+# Future automation/integration domain. These models contain no provider secrets in
+# plaintext; an application KMS/encryption service should encrypt token values.
+class AIAgent(db.Model):
+    __tablename__ = "ai_agents"
+    id = db.Column(db.Integer, primary_key=True)
+    public_id = db.Column(db.String(36), unique=True, nullable=False, default=lambda: str(uuid.uuid4()))
+    owner_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = db.Column(db.String(120), nullable=False)
+    status = db.Column(db.String(20), default="draft", nullable=False, index=True)
+    configuration = db.Column(db.JSON, default=dict, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
+class Lead(db.Model):
+    __tablename__ = "leads"
+    id = db.Column(db.Integer, primary_key=True)
+    public_id = db.Column(db.String(36), unique=True, nullable=False, default=lambda: str(uuid.uuid4()))
+    owner_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    source = db.Column(db.String(50), nullable=False, default="manual", index=True)
+    status = db.Column(db.String(30), nullable=False, default="new", index=True)
+    email = db.Column(db.String(255), nullable=True, index=True)
+    profile = db.Column(db.JSON, default=dict, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
+class SocialAccount(db.Model):
+    __tablename__ = "social_accounts"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    provider = db.Column(db.String(30), nullable=False, index=True)
+    external_account_id = db.Column(db.String(255), nullable=False)
+    display_name = db.Column(db.String(255), nullable=True)
+    scopes = db.Column(db.JSON, default=list, nullable=False)
+    permissions = db.Column(db.JSON, default=list, nullable=False)
+    business_account_id = db.Column(db.String(255), nullable=True)
+    webhook_configuration = db.Column(db.JSON, default=dict, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    __table_args__ = (db.UniqueConstraint("provider", "external_account_id", name="uq_social_provider_external"),)
+
+
+class OAuthToken(db.Model):
+    __tablename__ = "oauth_tokens"
+    id = db.Column(db.Integer, primary_key=True)
+    social_account_id = db.Column(db.Integer, db.ForeignKey("social_accounts.id", ondelete="CASCADE"), nullable=False, unique=True)
+    access_token_encrypted = db.Column(db.Text, nullable=False)
+    refresh_token_encrypted = db.Column(db.Text, nullable=True)
+    expires_at = db.Column(db.DateTime, nullable=True, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
