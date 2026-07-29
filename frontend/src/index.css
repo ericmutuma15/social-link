@@ -628,6 +628,9 @@ button:disabled {
   border-radius: 14px;
   background: var(--surface-solid);
   box-shadow: var(--shadow);
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 0.18s ease, transform 0.18s ease;
 }
 .popover a,
 .popover button {

@@ -13,13 +13,12 @@ import { HiOutlineBriefcase, HiOutlineOfficeBuilding, HiOutlinePhotograph } from
 
 import { useTheme } from "../../context/ThemeContext";
 import BackButton from "../../components/BackButton";
+import api from "../../services/apiClient";
 
 const EditProfile = () => {
   const navigate = useNavigate();
 
   const { theme } = useTheme();
-
-  const baseUrl = import.meta.env.VITE_API_BASE_URL;
 
   const [name, setName] = useState("");
 
@@ -69,32 +68,24 @@ const EditProfile = () => {
   // Fetch current user details from the API
   const fetchUserDetails = async () => {
     try {
-      const response = await fetch(`${baseUrl}/api/current_user`, {
-        method: "GET",
-        credentials: "include",
-      });
+      const response = await api.get("/api/current_user");
+      const data = response.data || response;
 
-      if (response.ok) {
-        const data = await response.json();
+      setName(data.name || "");
+      setDescription(data.description || "");
+      setLocation(data.location || "");
 
-        setName(data.name || "");
-        setDescription(data.description || "");
-        setLocation(data.location || "");
-
-        setPreview(data.picture || "/default-profile.png");
-        setCoverPreview(data.cover_photo || null);
-        setUsername(data.username || "");
-        setPhoneNumber(data.phone_number || "");
-        setWebsite(data.website || "");
-        setOccupation(data.occupation || "");
-        setCompany(data.company || "");
-        setTimezoneValue(data.timezone || "UTC");
-        setLanguageValue(data.language || "en");
-        setThemePreference(data.theme_preference || "system");
-        setSocialLinksText(data.social_links ? JSON.stringify(data.social_links) : "");
-      } else {
-        console.error("Failed to fetch user details");
-      }
+      setPreview(data.picture || "/default-profile.png");
+      setCoverPreview(data.cover_photo || null);
+      setUsername(data.username || "");
+      setPhoneNumber(data.phone_number || "");
+      setWebsite(data.website || "");
+      setOccupation(data.occupation || "");
+      setCompany(data.company || "");
+      setTimezoneValue(data.timezone || "UTC");
+      setLanguageValue(data.language || "en");
+      setThemePreference(data.theme_preference || "system");
+      setSocialLinksText(data.social_links ? JSON.stringify(data.social_links) : "");
     } catch (error) {
       console.error("Error fetching user details:", error);
     }
@@ -191,29 +182,17 @@ const EditProfile = () => {
       if (themePreference) formData.append("theme_preference", themePreference);
       if (socialLinksText) formData.append("social_links", socialLinksText);
 
-      const response = await fetch(`${baseUrl}/api/profile`, {
-        method: "POST",
-        credentials: "include",
-        body: formData,
+      const response = await api.post("/api/profile", formData);
+      const payload = response.data || {};
+
+      setAlert({
+        message: payload.message || "Profile updated successfully!",
+        type: "success",
       });
 
-      const payload = await response.json().catch(() => ({}));
-
-      if (response.ok) {
-        setAlert({
-          message: payload.message || "Profile updated successfully!",
-          type: "success",
-        });
-
-        setTimeout(() => {
-          navigate("/profile");
-        }, 800);
-      } else {
-        setAlert({
-          message: payload.error || payload.message || "Error updating profile",
-          type: "error",
-        });
-      }
+      setTimeout(() => {
+        navigate("/profile");
+      }, 800);
     } catch (error) {
       console.error("Error submitting profile:", error);
 
@@ -225,7 +204,7 @@ const EditProfile = () => {
     }
   };
   return (
-    <section className="workspace-page edit-profile-page">
+    <section className={`workspace-page edit-profile-page ${pageClass}`}>
       <header className="page-heading">
         <div>
           <p className="eyebrow">PROFILE</p>

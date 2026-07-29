@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import secrets
 import hashlib
@@ -70,12 +71,30 @@ logging.basicConfig(level=logging.INFO)
 
 app = Flask(__name__, static_folder="static")
 app.config.from_object(Config)
+
 # Normalize CORS origins from environment to avoid whitespace mismatches
-cors_env = os.getenv(
-    "CORS_ORIGINS",
-    "http://localhost:5173,http://127.0.0.1:5173,https://desire-link-app.vercel.app,https://mbogi-link.vercel.app",
-)
+cors_env = os.getenv("CORS_ORIGINS")
+default_cors = "http://localhost:5173,http://127.0.0.1:5173,https://desire-link-app.vercel.app,https://mbogi-link.vercel.app"
+frontend_url = os.getenv("FRONTEND_URL")
+if not cors_env or not cors_env.strip():
+    cors_env = default_cors
+if frontend_url and frontend_url.strip():
+    cors_env = ",".join([cors_env, frontend_url.strip()])
+
 allowed_origins = [o.strip() for o in cors_env.split(",") if o.strip()]
+
+VERCEL_ORIGIN_RE = re.compile(r"^https:\/\/[^\/]+\.vercel\.app$")
+RENDER_ORIGIN_RE = re.compile(r"^https:\/\/[^\/]+\.onrender\.com$")
+
+
+def is_origin_allowed(origin):
+    if not origin:
+        return False
+    if origin in allowed_origins:
+        return True
+    if VERCEL_ORIGIN_RE.match(origin) or RENDER_ORIGIN_RE.match(origin):
+        return True
+    return False
 
 Talisman(
     app,
@@ -85,7 +104,7 @@ Talisman(
         "default-src": ["'self'"],
         "img-src": ["'self'", "data:", "https:"],
         "media-src": ["'self'", "https:"],
-        "connect-src": ["'self'", *allowed_origins],
+        "connect-src": ["'self'", "https:"],
     },
 )
 limiter = Limiter(key_func=get_remote_address, app=app, default_limits=["300 per hour"])
@@ -93,7 +112,7 @@ limiter = Limiter(key_func=get_remote_address, app=app, default_limits=["300 per
 # Enable Cross-Origin Resource Sharing for React frontend
 CORS(
     app,
-    resources={r"/*": {"origins": allowed_origins}},
+    resources={r"/*": {"origins": is_origin_allowed}},
     supports_credentials=True,
     allow_headers=[
         "Content-Type",
@@ -110,8 +129,8 @@ CORS(
     ],
     send_wildcard=False,
 )
-# Allow SocketIO connections from approved origins as well
-socketio = SocketIO(app, cors_allowed_origins=allowed_origins)
+# Allow SocketIO connections from approved origins and common deployment hosts.
+socketio = SocketIO(app, cors_allowed_origins=is_origin_allowed)
 messages_bp = Blueprint('messages', __name__)
 
 # JWT Configuration
@@ -347,7 +366,7 @@ messages_bp = Blueprint("messages", __name__)
 @app.after_request
 def add_cors_headers(response):
     origin = request.headers.get("Origin")
-    if origin in allowed_origins:
+    if is_origin_allowed(origin):
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Vary"] = "Origin"
     response.headers["Access-Control-Allow-Credentials"] = "true"

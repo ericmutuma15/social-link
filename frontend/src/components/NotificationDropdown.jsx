@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import NotificationCard from "./NotificationCard";
 import api from "../services/apiClient";
+import { motion, AnimatePresence } from "framer-motion";
 
 export default function NotificationDropdown({ open, onClose, onUnreadCountChange }) {
   const [items, setItems] = useState([]);
@@ -36,5 +37,26 @@ export default function NotificationDropdown({ open, onClose, onUnreadCountChang
       setLoading(false);
     }
   };
-  return open ? <div className="popover notification-popover"><div className="popover-title">Notifications <Link to="/notifications" onClick={onClose}>View all</Link></div>{loading ? <p className="muted">Loading activity…</p> : items.length ? items.map(item => <NotificationCard key={item.id} notification={item} compact onOpen={openNotification} onAccept={acceptFriendRequest} />) : <p className="muted">You’re all caught up.</p>}</div> : null;
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 6 }}
+          transition={{ duration: 0.16 }}
+          className="popover notification-popover"
+        >
+          <div className="popover-title">Notifications <Link to="/notifications" onClick={onClose}>View all</Link></div>
+          {loading ? (
+            <p className="muted">Loading activity…</p>
+          ) : items.length ? (
+            items.map(item => <NotificationCard key={item.id} notification={item} compact onOpen={openNotification} onAccept={acceptFriendRequest} />)
+          ) : (
+            <p className="muted">You’re all caught up.</p>
+          )}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
 }

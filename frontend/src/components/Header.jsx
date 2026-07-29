@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   HiOutlineBell,
   HiOutlineBookmark,
@@ -26,6 +26,7 @@ export default function Header() {
   const [notifications, setNotifications] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [unreadMessages, setUnreadMessages] = useState(0);
+  const headerRef = useRef(null);
   const closeOverlays = () => {
     setMenu(false);
     setNotifications(false);
@@ -35,11 +36,32 @@ export default function Header() {
     let active = true;
     const refresh = () => Promise.all([api.get("/api/notifications/unread-count"), api.get("/api/messages/unread-count")]).then(([notificationResponse, messageResponse]) => { if (!active) return; setUnreadCount(notificationResponse.data?.unread_count || 0); setUnreadMessages(messageResponse.data?.unread_count || 0); }).catch(() => active && (setUnreadCount(0), setUnreadMessages(0)));
     refresh();
+    if (!user?.id) return () => { active = false; };
     const socket = io(import.meta.env.VITE_API_BASE_URL, { withCredentials: true });
-    socket.on("connect", () => socket.emit("join_chat", { user_id: user?.id }));
+    socket.on("connect", () => socket.emit("join_chat", { user_id: user.id }));
     socket.on("notification", refresh);
     return () => { active = false; socket.disconnect(); };
-  }, [notifications, user?.id]);
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!menu && !notifications) return;
+    const handleClickOutside = (event) => {
+      if (headerRef.current && !headerRef.current.contains(event.target)) {
+        closeOverlays();
+      }
+    };
+    const handleEscape = (event) => {
+      if (event.key === "Escape") {
+        closeOverlays();
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [menu, notifications]);
   const exit = async () => {
     await logout();
     navigate("/login");
@@ -54,7 +76,7 @@ export default function Header() {
     ["/profile", "Profile", HiOutlineUser],
   ];
   return (
-    <header className="global-header">
+    <header ref={headerRef} className="global-header">
       <Link to="/home" className="brand" aria-label="Desire Link home" onClick={closeOverlays}>
         <span>👊</span>mbogi
       </Link>
