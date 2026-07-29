@@ -455,10 +455,19 @@ def serve_react(path):
     file_path = os.path.join(app.static_folder, path)
 
     if path != "" and os.path.exists(file_path):
-        return send_from_directory(app.static_folder, path)
+        resp = send_from_directory(app.static_folder, path)
+        # During debugging, avoid client cache to ensure fresh assets are fetched.
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+        return resp
     
     # fallback for React Router
-    return send_from_directory(app.static_folder, "index.html")
+    resp = send_from_directory(app.static_folder, "index.html")
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
 
 from flask_jwt_extended import verify_jwt_in_request
 
