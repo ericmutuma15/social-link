@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { HiOutlineTrash } from "react-icons/hi";
 import ReactionBar from "./ReactionBar";
 import CommentSection from "./CommentSection";
+import { apiMediaUrl, mediaKind } from "../utils/media";
 export default function PostCard({
   post,
   baseUrl,
@@ -15,7 +16,8 @@ export default function PostCard({
   onCommentEdit,
   onMediaClick,
 }) {
-  const media = post.media_url;
+  const media = apiMediaUrl(post.media_url);
+  const kind = mediaKind(media, post.media_type);
   return (
     <article className="post-card">
       <header>
@@ -47,17 +49,12 @@ export default function PostCard({
           {post.content}
         </Link>
       )}
-      {media && (
-        <button className="post-media" onClick={() => onMediaClick(media)}>
-          {/\.(mp4|webm)$/i.test(media) ? (
-            <video controls>
-              <source src={media} type="video/mp4" />
-            </video>
-          ) : (
-            <img src={media} alt="Post attachment" loading="lazy" />
-          )}
-        </button>
-      )}
+      {media && <div className="post-media">
+        {kind === "video" && <video controls preload="metadata"><source src={media} />Your browser cannot play this video.</video>}
+        {kind === "audio" && <audio controls preload="metadata" src={media}>Your browser cannot play this audio.</audio>}
+        {kind === "document" && <a href={media} target="_blank" rel="noreferrer">Open document</a>}
+        {kind === "image" && <button type="button" onClick={() => onMediaClick?.(media)}><img src={media} alt="Post attachment" loading="lazy" onError={(event) => { event.currentTarget.style.display = "none"; }} /></button>}
+      </div>}
       <ReactionBar
         liked={post.isLiked}
         bookmarked={post.bookmarked}

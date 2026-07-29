@@ -10,6 +10,7 @@ const CreatePost = ({ onPostCreated }) => {
   const [media, setMedia] = useState(null);
   const [mediaPreview, setMediaPreview] = useState(null); // For previewing media
   const [error, setError] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false); // Emoji picker visibility
   const pickerRef = useRef(null);
   const navigate = useNavigate();
@@ -23,13 +24,13 @@ const CreatePost = ({ onPostCreated }) => {
     setMedia(file);
 
     if (file) {
-      const isVideo = file.type.startsWith("video");
+      const type = file.type.startsWith("video/") ? "video" : file.type.startsWith("audio/") ? "audio" : file.type === "application/pdf" ? "document" : "image";
       const reader = new FileReader();
 
       reader.onload = () => {
         setMediaPreview({
           src: reader.result,
-          type: isVideo ? "video" : "image",
+          type,
         });
       };
 
@@ -41,6 +42,7 @@ const CreatePost = ({ onPostCreated }) => {
 
   const handlePostSubmit = async (e) => {
     e.preventDefault();
+    if (submitting) return;
     setError(null);
 
     const formData = new FormData();
@@ -50,6 +52,7 @@ const CreatePost = ({ onPostCreated }) => {
     }
 
     try {
+      setSubmitting(true);
       const response = await api.post("/api/posts", formData);
       if (!response?.data?.success) {
         throw new Error(response?.data?.message || "Unable to publish post.");
@@ -67,7 +70,7 @@ const CreatePost = ({ onPostCreated }) => {
         "Error creating post: " +
           (error.response?.data?.message || error.message || "Unable to publish post.")
       );
-    }
+    } finally { setSubmitting(false); }
   };
 
   useEffect(() => {
@@ -149,7 +152,7 @@ const CreatePost = ({ onPostCreated }) => {
             <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">Media</label>
             <input
               type="file"
-              accept="image/*,video/*"
+              accept="image/png,image/jpeg,image/gif,image/webp,image/avif,video/mp4,video/quicktime,video/webm,audio/mpeg,audio/mp4,audio/ogg,audio/wav,application/pdf"
               onChange={handleMediaChange}
               className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-cyan-500 file:text-white hover:file:bg-cyan-600"
             />
@@ -163,24 +166,24 @@ const CreatePost = ({ onPostCreated }) => {
                   alt="Preview"
                   className="w-full h-auto rounded-2xl border border-slate-200/70 object-cover dark:border-slate-800/80"
                 />
-              ) : (
+              ) : mediaPreview.type === "video" ? (
                 <video
                   src={mediaPreview.src}
                   controls
                   className="w-full h-auto rounded-2xl border border-slate-200/70 object-cover dark:border-slate-800/80"
                 ></video>
-              )}
+              ) : mediaPreview.type === "audio" ? <audio controls src={mediaPreview.src} /> : <a href={mediaPreview.src} target="_blank" rel="noreferrer">Preview document</a>}
             </div>
           )}
 
-          {/* Submit Button */}
           <motion.button
             type="submit"
+            disabled={submitting}
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             className="w-full rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 py-3 text-white font-semibold shadow-lg shadow-cyan-500/15 transition hover:opacity-95"
           >
-            Post
+            {submitting ? "Publishing…" : "Post"}
           </motion.button>
         </form>
       </motion.div>

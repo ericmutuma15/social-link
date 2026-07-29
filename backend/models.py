@@ -95,10 +95,11 @@ class Post(db.Model):
     timestamp = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     # Relationships
-    user = db.relationship('User', back_populates='posts', overlaps="author")
-    author = db.relationship('User', back_populates='posts', overlaps="user")
-    likes = db.relationship('Like', back_populates='post', lazy='dynamic')
-    comments = db.relationship('Comment', back_populates='post', lazy='select')  # Change 'dynamic' to 'select'
+    user = db.relationship('User', back_populates='posts')
+    # ORM cascades protect existing databases that predate ON DELETE CASCADE.
+    # This keeps post deletion atomic even before their schema migration runs.
+    likes = db.relationship('Like', back_populates='post', lazy='dynamic', cascade='all, delete-orphan')
+    comments = db.relationship('Comment', back_populates='post', lazy='select', cascade='all, delete-orphan')
 
     # This method calculates the total like count for a post
     def like_count(self):
@@ -144,8 +145,8 @@ class Bookmark(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     post_id = db.Column(db.Integer, db.ForeignKey('posts.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    user = db.relationship('User', backref=db.backref('bookmarks', lazy='dynamic'))
-    post = db.relationship('Post', backref=db.backref('bookmarks', lazy='dynamic'))
+    user = db.relationship('User', backref=db.backref('bookmarks', lazy='dynamic', cascade='all, delete-orphan'))
+    post = db.relationship('Post', backref=db.backref('bookmarks', lazy='dynamic', cascade='all, delete-orphan'))
     __table_args__ = (db.UniqueConstraint('user_id', 'post_id', name='unique_user_post_bookmark'),)
 
 

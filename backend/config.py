@@ -27,13 +27,6 @@ class Config:
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(minutes=int(os.getenv("JWT_ACCESS_MINUTES", "30")))
     JWT_REFRESH_TOKEN_EXPIRES = timedelta(days=int(os.getenv("JWT_REFRESH_DAYS", "30")))
     MAIL_SERVER = (os.getenv("MAIL_SERVER") or "").strip()
-    ALLOWED_EXTENSIONS = {
-        "png",
-        "jpg",
-        "jpeg",
-        "gif",
-        "webp",
-    }
     MAIL_PORT = int(os.getenv("MAIL_PORT", "587"))
     MAIL_USE_TLS = os.getenv("MAIL_USE_TLS", "true").lower() == "true"
     MAIL_USERNAME = (os.getenv("MAIL_USERNAME") or "").strip()

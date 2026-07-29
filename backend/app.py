@@ -33,6 +33,7 @@ from flask_login import current_user, login_required
 from flask_jwt_extended import (
     JWTManager,
     jwt_required,
+    verify_jwt_in_request,
     get_jwt_identity as _get_jwt_identity,
     create_access_token as _create_access_token,
     create_refresh_token as _create_refresh_token,
@@ -112,7 +113,11 @@ limiter = Limiter(key_func=get_remote_address, app=app, default_limits=["300 per
 # Enable Cross-Origin Resource Sharing for React frontend
 CORS(
     app,
-    resources={r"/*": {"origins": is_origin_allowed}},
+    # flask-cors accepts strings/regexes here, not a predicate.  Passing the
+    # predicate made every response (including login) fail while headers were
+    # being finalized.  Dynamic deployment origins are added safely below in
+    # ``add_cors_headers``.
+    resources={r"/*": {"origins": allowed_origins}},
     supports_credentials=True,
     allow_headers=[
         "Content-Type",
@@ -189,11 +194,15 @@ UPLOAD_MIME_PREFIXES = ("image/", "video/", "audio/")
 UPLOAD_MIME_TYPES = {"application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/plain"}
 
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
+os.makedirs(os.path.join(app.root_path, "static", "images"), exist_ok=True)
+os.makedirs(os.path.join(app.root_path, "static", "sidebar_images"), exist_ok=True)
 
 
 @app.errorhandler(413)
 def upload_too_large(_error):
-    return api_response(message="Maximum upload size is 20 MB.", status=413)
+    limit_mb = max(1, app.config["MAX_CONTENT_LENGTH"] // (1024 * 1024))
+    return api_response(message=f"Maximum upload size is {limit_mb} MB.", status=413)
 
 # Initialize extensions
 # `db` is created uninitialized in `models.py` to avoid circular imports; import it and init with the app.
@@ -391,12 +400,26 @@ def validate_upload(file):
     if not allowed_file(file.filename):
         return "This file format isn't supported."
     mime = (file.mimetype or "").lower()
+    expected_kind = media_type_for(file.filename, mime)
     if mime and not (mime.startswith(UPLOAD_MIME_PREFIXES) or mime in UPLOAD_MIME_TYPES):
         return "This file format isn't supported."
+    # Reject a known MIME type that conflicts with its extension.  Generic
+    # values remain compatible with older mobile browsers and proxies.
+    if mime and mime not in {"application/octet-stream", "binary/octet-stream"}:
+        if expected_kind == "image" and not mime.startswith("image/"):
+            return "This file format isn't supported."
+        if expected_kind == "video" and not mime.startswith("video/"):
+            return "This file format isn't supported."
+        if expected_kind == "audio" and not mime.startswith("audio/"):
+            return "This file format isn't supported."
+        if expected_kind == "document" and mime not in UPLOAD_MIME_TYPES:
+            return "This file format isn't supported."
     return None
 
 
-def media_type_for(filename):
+def media_type_for(filename, mime=None):
+    if (mime or "").lower().startswith("audio/"):
+        return "audio"
     ext = filename.rsplit(".", 1)[-1].lower()
     if ext in {"jpg", "jpeg", "png", "gif", "webp", "avif"}:
         return "image"
@@ -440,6 +463,7 @@ def serialize_post(post, current_user_id=None, include_comments=True):
         "user_photo": public_profile_url(post.user.picture if post.user else None),
         "content": post.content,
         "media_url": public_media_url(post.media_url),
+        "media_type": media_type_for(post.media_url) if post.media_url else None,
         "timestamp": post.timestamp.isoformat(),
         "likes": post.like_count(),
         "liked": bool(current_user_id and Like.query.filter_by(post_id=post.id, user_id=current_user_id).first()),
@@ -1246,8 +1270,8 @@ def update_profile():
             os.makedirs(images_folder, exist_ok=True)
 
         if picture:
-            if not allowed_file(picture.filename):
-                return api_response(message="Profile image must be PNG, JPG, JPEG, or GIF", status=422)
+            if validate_upload(picture) or media_type_for(picture.filename, picture.mimetype) != "image":
+                return api_response(message="Profile image must be a supported image.", status=422)
             filename = f"{secrets.token_hex(8)}_{secure_filename(picture.filename)}"
             image_path = os.path.join(images_folder, filename)
             picture.save(image_path)
@@ -1266,8 +1290,8 @@ def update_profile():
             user.avatar_mime = (picture.mimetype or 'image/png')
 
         if cover_photo:
-            if not allowed_file(cover_photo.filename):
-                return api_response(message="Cover image must be PNG, JPG, JPEG, or GIF", status=422)
+            if validate_upload(cover_photo) or media_type_for(cover_photo.filename, cover_photo.mimetype) != "image":
+                return api_response(message="Cover image must be a supported image.", status=422)
             filename = f"{secrets.token_hex(8)}_{secure_filename(cover_photo.filename)}"
             cover_path = os.path.join(images_folder, filename)
             cover_photo.save(cover_path)
@@ -1330,7 +1354,7 @@ def create_post():
         form_data = request.form.to_dict(flat=True)
         media = request.files.get('media')
 
-        content = form_data.get('content')
+        content = (form_data.get('content') or '').strip()
         media_url = None
 
         uploads_folder = os.path.join(app.root_path, 'static/uploads')
@@ -1345,6 +1369,8 @@ def create_post():
             media.save(os.path.join(uploads_folder, media_filename))
             media_url = f'/static/uploads/{media_filename}'
 
+        if len(content) > 5000:
+            return api_response(message="Your post is too long.", status=400)
         if not content and not media_url:
             return api_response(message="Add text or an attachment to publish your post.", status=400)
 
@@ -1373,19 +1399,15 @@ def get_all_posts():
     friend_ids = db.session.query(Friendship.friend_id).filter(Friendship.user_id == current_user_id).union(
         db.session.query(Friendship.user_id).filter(Friendship.friend_id == current_user_id)
     )
-    # The first page gives existing connections priority.  Discovery content
-    # fills any remaining slots so users without friends still have a useful home.
-    friends = Post.query.options(joinedload(Post.user)).filter(Post.user_id.in_(friend_ids)).order_by(Post.timestamp.desc()).limit(per_page).all()
-    remaining = max(per_page - len(friends), 0)
-    seen_ids = [post.id for post in friends]
-    discovery = []
-    if remaining:
-        discovery_query = Post.query.options(joinedload(Post.user)).filter(Post.user_id != current_user_id)
-        if seen_ids:
-            discovery_query = discovery_query.filter(~Post.id.in_(seen_ids))
-        discovery = discovery_query.order_by(db.func.random()).limit(remaining).all()
-    items = friends + discovery
-    return jsonify({"items": [serialize_post(post, current_user_id) for post in items], "page": page, "has_more": False, "total": len(items), "has_discovery": bool(discovery)}), 200
+    # Keep the user's and friends' posts first, but include discovery content
+    # rather than returning an empty feed for a new account.  A stable ordering
+    # makes pagination reliable and avoids SQLite's expensive RANDOM() scan.
+    priority_users = friend_ids.union(db.session.query(db.literal(current_user_id)))
+    priority = case((Post.user_id.in_(priority_users), 0), else_=1)
+    pagination = (Post.query.options(joinedload(Post.user))
+        .order_by(priority, Post.timestamp.desc())
+        .paginate(page=page, per_page=per_page, error_out=False))
+    return jsonify({"items": [serialize_post(post, current_user_id) for post in pagination.items], "page": page, "has_more": pagination.has_next, "total": pagination.total, "has_discovery": any(post.user_id != current_user_id for post in pagination.items)}), 200
 
 
 @app.route('/api/explore', methods=['GET'])
@@ -1424,12 +1446,25 @@ def delete_post(post_id):
     user_id = get_jwt_identity()
     post = Post.query.get(post_id)
     if not post:
-        return jsonify({"error": "Post not found"}), 404
+        return api_response(message="Post not found", status=404)
     if post.user_id != user_id:
-        return jsonify({"error": "You can only delete your own posts"}), 403
+        return api_response(message="You can only delete your own posts", status=403)
+    media_path = None
+    if post.media_url and post.media_url.startswith("/static/uploads/"):
+        media_path = os.path.join(app.config["UPLOAD_FOLDER"], os.path.basename(post.media_url))
     db.session.delete(post)
     db.session.commit()
-    return jsonify({"message": "Post deleted", "post_id": post_id}), 200
+    # The database is authoritative; a missing/locked file must not undo a
+    # successful post deletion.  Only delete files managed by this instance.
+    if media_path:
+        try:
+            os.remove(media_path)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            app.logger.warning("Could not remove deleted post media: %s", media_path)
+    socketio.emit("post_deleted", {"post_id": post_id, "user_id": user_id})
+    return api_response(data={"post_id": post_id}, message="Post deleted")
 
 
 @app.route('/api/posts/<int:post_id>/like', methods=['POST'])
@@ -1459,13 +1494,21 @@ def like_post(post_id):
             # Remove the like
             db.session.delete(existing_like)
             db.session.commit()
-            return api_response(data={"likes": post.like_count(), "liked": False}, message="Like removed", status=200)
+            result = {"post_id": post_id, "likes": post.like_count(), "liked": False}
+            socketio.emit("post_liked", result)
+            return api_response(data=result, message="Like removed", status=200)
         
         # Add a new like
         new_like = Like(user_id=user_id, post_id=post_id)
         db.session.add(new_like)
         db.session.commit()
-        return api_response(data={"likes": post.like_count(), "liked": True}, message="Post liked", status=201)
+        result = {"post_id": post_id, "likes": post.like_count(), "liked": True}
+        if post.user_id != user_id:
+            db.session.add(Notification(user_id=post.user_id, message=f"{user.name} liked your post", type="like"))
+            db.session.commit()
+            socketio.emit("notification", {"type": "like"}, room=f"user_{post.user_id}")
+        socketio.emit("post_liked", result)
+        return api_response(data=result, message="Post liked", status=201)
     
     except Exception as e:
         db.session.rollback()
@@ -1554,8 +1597,13 @@ def add_comment(post_id):
         new_comment = Comment(content=comment_content, user_id=user_id, post_id=post.id)
         db.session.add(new_comment)
         db.session.commit()
-
-        return api_response(data=serialize_comment(new_comment, user_id), message="Comment added", status=201)
+        result = serialize_comment(new_comment, user_id)
+        if post.user_id != user_id:
+            db.session.add(Notification(user_id=post.user_id, message=f"{new_comment.user.name} commented on your post", type="comment"))
+            db.session.commit()
+            socketio.emit("notification", {"type": "comment"}, room=f"user_{post.user_id}")
+        socketio.emit("post_commented", {"post_id": post_id, "comment": result})
+        return api_response(data=result, message="Comment added", status=201)
 
     except Exception as e:
         db.session.rollback()
@@ -1650,7 +1698,28 @@ def upload_sidebar_image():
 
 
 # Define the allowed file extensions
-ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif"}
+ALLOWED_EXTENSIONS = {
+    # Images
+    "png",
+    "jpg",
+    "jpeg",
+    "gif",
+    "webp",
+    "avif",
+
+    # Videos
+    "mp4",
+    "mov",
+    "webm",
+    "mkv",
+    "avi",
+
+    # Audio
+    "mp3",
+    "wav",
+    "ogg",
+    "m4a",
+}
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -2153,11 +2222,15 @@ def mark_all_read():
 # Socket.IO event handlers
 @socketio.on("connect")
 def handle_connect():
-    print("Client connected")
+    try:
+        verify_jwt_in_request()
+        join_room(f"user_{get_jwt_identity()}")
+    except Exception:
+        return False
 
 @socketio.on("disconnect")
 def handle_disconnect():
-    print("Client disconnected")
+    return None
 
 @socketio.on("join_chat")
 def handle_join_chat(data):
@@ -2181,9 +2254,11 @@ def handle_typing(data):
 
 @socketio.on("leave_chat")
 def handle_leave_chat(data):
-    user_id = data.get("user_id")
-    leave_room(f"user_{user_id}")
-    print(f"User {user_id} left room user_{user_id}")
+    try:
+        verify_jwt_in_request()
+        leave_room(f"user_{get_jwt_identity()}")
+    except Exception:
+        return False
 
 
 # --- Messaging Endpoints ---
@@ -2372,7 +2447,7 @@ def upload_file():
 
     # Create URL for the uploaded file
     file_url = url_for("uploaded_file", filename=filename, _external=True)
-    return api_response(data={"media_url": file_url, "media_type": media_type_for(filename)}, message="Upload complete"), 201
+    return api_response(data={"media_url": file_url, "media_type": media_type_for(filename, file.mimetype)}, message="Upload complete"), 201
 
 @app.route("/uploads/<path:filename>")
 def uploaded_file(filename):
@@ -2473,4 +2548,6 @@ def get_unread_message_count():
 if __name__ == "__main__":
     with app.app_context():
         db.create_all()
-    socketio.run(app, debug=True, port=5555)
+    # Direct execution is the documented local-development entry point.  Real
+    # deployments use Gunicorn (see gunicorn_config.py), not Werkzeug.
+    socketio.run(app, debug=app.config["APP_ENV"] == "development", port=5555, allow_unsafe_werkzeug=True)
