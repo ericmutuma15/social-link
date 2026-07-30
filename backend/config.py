@@ -16,7 +16,10 @@ class Config:
     SQLALCHEMY_ENGINE_OPTIONS = {"pool_pre_ping": True, "pool_recycle": 1800}
     SECRET_KEY = os.getenv("SECRET_KEY") or os.getenv("JWT_SECRET_KEY", "dev-only-change-me")
     JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", SECRET_KEY)
-    JWT_TOKEN_LOCATION = ["cookies"]
+    # Browser clients retain their HTTP-only cookies. Native clients opt in to
+    # the standard Authorization header and store credentials in platform
+    # secure storage.
+    JWT_TOKEN_LOCATION = ["cookies", "headers"]
     JWT_ACCESS_COOKIE_NAME = "access_token"
     JWT_REFRESH_COOKIE_NAME = "refresh_token"
     JWT_COOKIE_HTTPONLY = True

@@ -148,7 +148,7 @@ if not jwt_secret:
 
 app.config["JWT_SECRET_KEY"] = jwt_secret
 
-app.config["JWT_TOKEN_LOCATION"] = ["cookies"]
+app.config["JWT_TOKEN_LOCATION"] = ["cookies", "headers"]
 
 app.config["JWT_ACCESS_COOKIE_NAME"] = "access_token"
 app.config["JWT_REFRESH_COOKIE_NAME"] = "refresh_token"
@@ -656,7 +656,13 @@ def login():
     user.last_login = user.last_active = datetime.utcnow()
     audit("auth.login", user.id)
     db.session.commit()
-    response = jsonify({"success": True, "message": "Login successful", "data": {"user_id": user.id}, "errors": []})
+    mobile_client = bool(data.get("mobile_client"))
+    response_data = {"user_id": user.id}
+    if mobile_client:
+        # This opt-in payload is for the native Flutter client only. Web users
+        # continue receiving HTTP-only cookies, preserving the existing flow.
+        response_data.update({"access_token": access_token, "refresh_token": refresh_token})
+    response = jsonify({"success": True, "message": "Login successful", "data": response_data, "errors": []})
     set_access_cookies(response, access_token, max_age=timedelta(hours=1))
     set_refresh_cookies(response, refresh_token, max_age=timedelta(days=30))
 
@@ -990,7 +996,8 @@ def refresh_token():
 
     access_token = create_access_token(identity=identity)
 
-    response = jsonify({"message": "Token refreshed"})
+    response_data = {"access_token": access_token} if request.headers.get("X-Mobile-Client") == "flutter" else None
+    response = api_response(data=response_data, message="Token refreshed")[0]
 
     set_access_cookies(response, access_token)
 
