@@ -22,7 +22,7 @@ class FeedScreen extends ConsumerWidget {
       ),
       body: feed.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (_, __) => AppAsync(message: 'Unable to load posts.', onRetry: () => ref.read(feedProvider.notifier).refresh()),
+        error: (_, _) => AppAsync(message: 'Unable to load posts.', onRetry: () => ref.read(feedProvider.notifier).refresh()),
         data: (posts) {
           return RefreshIndicator(
             onRefresh: () => ref.read(feedProvider.notifier).refresh(),
@@ -66,7 +66,7 @@ class FeedScreen extends ConsumerWidget {
       context: context,
       barrierDismissible: true,
       barrierLabel: 'Dismiss',
-      pageBuilder: (dialogContext, _, __) => AlertDialog(
+      pageBuilder: (dialogContext, _, _) => AlertDialog(
         icon: const Icon(Icons.delete_forever_rounded, color: Colors.red, size: 40),
         title: const Text('Delete this post?'),
         content: const Text('This action cannot be undone.'),
@@ -79,7 +79,7 @@ class FeedScreen extends ConsumerWidget {
           ),
         ],
       ),
-      transitionBuilder: (_, animation, __, child) => BackdropFilter(
+      transitionBuilder: (_, animation, _, child) => BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 2, sigmaY: 2),
         child: ScaleTransition(
           scale: CurvedAnimation(parent: animation, curve: Curves.easeOutBack),

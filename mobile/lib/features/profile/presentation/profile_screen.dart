@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -35,6 +36,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final user = _user ?? {};
+    final picture = user['picture'] as String?;
     return Scaffold(
       appBar: AppBar(title: const Text('Profile'), actions: [IconButton(onPressed: () => context.push('/settings'), icon: const Icon(Icons.settings_outlined))]),
       body: _loading
@@ -49,35 +51,29 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       padding: const EdgeInsets.all(20),
                       child: Column(
                         children: [
-                          CircleAvatar(radius: 40, child: Text((user['name'] as String? ?? 'U').substring(0, 1).toUpperCase())),
+                          CircleAvatar(radius: 48, backgroundImage: picture != null ? CachedNetworkImageProvider(picture) : null, child: picture == null ? Text((user['name'] as String? ?? 'U').substring(0, 1).toUpperCase()) : null),
                           const SizedBox(height: 12),
                           Text(user['name'] as String? ?? 'Your profile', style: Theme.of(context).textTheme.titleLarge),
                           const SizedBox(height: 4),
                           Text(user['email'] as String? ?? '', style: Theme.of(context).textTheme.bodyMedium),
+                          if ((user['description'] as String?).isNotNullAndNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            Text(user['description'] as String, textAlign: TextAlign.center),
+                          ],
                         ],
                       ),
                     ),
                   ),
                   const SizedBox(height: 16),
-                  ListTile(
-                    leading: const Icon(Icons.person_outline),
-                    title: const Text('Edit profile'),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () {},
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.group_outlined),
-                    title: const Text('Friends'),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => context.push('/friends'),
-                  ),
+                  _StatTile(Icons.group_outlined, 'Friends', '${user['friend_count'] ?? 0}', () => context.push('/friends')),
+                  _StatTile(Icons.forum_outlined, 'Messages', 'Open chat', () => context.push('/messages')),
                   ListTile(
                     leading: const Icon(Icons.logout),
                     title: const Text('Logout'),
                     onTap: () async {
                       await ref.read(tokenStorageProvider).clear();
                       if (mounted && context.mounted) {
-                        context.go('/');
+                        context.go('/login');
                       }
                     },
                   ),
@@ -86,4 +82,29 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             ),
     );
   }
+}
+
+class _StatTile extends StatelessWidget {
+  const _StatTile(this.icon, this.title, this.value, this.onTap);
+  final IconData icon;
+  final String title;
+  final String value;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: ListTile(
+        leading: Icon(icon),
+        title: Text(title),
+        subtitle: Text(value),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: onTap,
+      ),
+    );
+  }
+}
+
+extension on String? {
+  bool get isNotNullAndNotEmpty => this != null && this!.isNotEmpty;
 }

@@ -4,11 +4,12 @@ import {
   motion
 } from "framer-motion";
 
-import BG from "./../../assets/Designer(1).png";
-
 import {
   useTheme
 } from "../../context/ThemeContext";
+
+const BG = "/Designer.svg";
+
 const LoadingPage = () => {
 
 

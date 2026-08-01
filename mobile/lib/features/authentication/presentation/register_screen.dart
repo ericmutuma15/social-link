@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/network/api_exception.dart';
+import '../../../shared/widgets/brand_logo.dart';
 import '../../feeds/presentation/feed_controller.dart';
 
 final authControllerProvider = Provider((ref) => _AuthController(ref));
@@ -58,15 +59,17 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text('Join Mbogi', style: Theme.of(context).textTheme.headlineMedium),
+                  const BrandLogo(size: 80),
+                  const SizedBox(height: 16),
+                  Text('Join the circle', style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w700), textAlign: TextAlign.center),
                   const SizedBox(height: 24),
-                  TextFormField(controller: _name, decoration: const InputDecoration(labelText: 'Name'), validator: (value) => (value?.trim().isNotEmpty ?? false) ? null : 'Please enter your name'),
+                  TextFormField(controller: _name, decoration: const InputDecoration(labelText: 'Your name', prefixIcon: Icon(Icons.person_outline)), validator: (value) => (value?.trim().isNotEmpty ?? false) ? null : 'Please enter your name'),
                   const SizedBox(height: 14),
-                  TextFormField(controller: _email, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: 'Email'), validator: (value) => value != null && value.contains('@') ? null : 'Enter a valid email'),
+                  TextFormField(controller: _email, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: 'Email address', prefixIcon: Icon(Icons.email_outlined)), validator: (value) => value != null && value.contains('@') ? null : 'Enter a valid email'),
                   const SizedBox(height: 14),
-                  TextFormField(controller: _password, obscureText: true, decoration: const InputDecoration(labelText: 'Password'), validator: (value) => (value?.length ?? 0) >= 6 ? null : 'Use at least 6 characters'),
+                  TextFormField(controller: _password, obscureText: true, decoration: const InputDecoration(labelText: 'Password', prefixIcon: Icon(Icons.lock_outline)), validator: (value) => (value?.length ?? 0) >= 6 ? null : 'Use at least 6 characters'),
                   const SizedBox(height: 20),
-                  FilledButton(onPressed: _loading ? null : _submit, child: _loading ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Sign up')),
+                  FilledButton(onPressed: _loading ? null : _submit, child: _loading ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Create account')),
                 ],
               ),
             ),

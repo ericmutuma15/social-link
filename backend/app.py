@@ -656,12 +656,15 @@ def login():
     user.last_login = user.last_active = datetime.utcnow()
     audit("auth.login", user.id)
     db.session.commit()
-    mobile_client = bool(data.get("mobile_client"))
+
+    mobile_client = bool(data.get("mobile_client") or form_data.get("mobile_client") or request.headers.get("X-Mobile-Client"))
     response_data = {"user_id": user.id}
     if mobile_client:
-        # This opt-in payload is for the native Flutter client only. Web users
-        # continue receiving HTTP-only cookies, preserving the existing flow.
         response_data.update({"access_token": access_token, "refresh_token": refresh_token})
+    else:
+        # Preserve the existing web flow with HTTP-only cookies.
+        response_data.update({"session": "cookie"})
+
     response = jsonify({"success": True, "message": "Login successful", "data": response_data, "errors": []})
     set_access_cookies(response, access_token, max_age=timedelta(hours=1))
     set_refresh_cookies(response, refresh_token, max_age=timedelta(days=30))

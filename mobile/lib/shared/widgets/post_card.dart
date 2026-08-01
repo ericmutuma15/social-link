@@ -57,7 +57,7 @@ class PostCard extends StatelessWidget {
                   child: CachedNetworkImage(
                     imageUrl: post.mediaUrl!,
                     fit: BoxFit.cover,
-                    errorWidget: (_, __, ___) => const AspectRatio(
+                    errorWidget: (_, _, _) => const AspectRatio(
                       aspectRatio: 16 / 9,
                       child: Center(child: Icon(Icons.broken_image_outlined)),
                     ),
