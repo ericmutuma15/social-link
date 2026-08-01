@@ -12,6 +12,7 @@ class PostCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
+      margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -19,14 +20,18 @@ class PostCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                CircleAvatar(child: Text(post.author.isEmpty ? 'U' : post.author.substring(0, 1).toUpperCase())),
+                CircleAvatar(
+                  radius: 22,
+                  backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                  child: Text(post.author.isEmpty ? 'U' : post.author.substring(0, 1).toUpperCase()),
+                ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(post.author, style: Theme.of(context).textTheme.titleSmall),
-                      Text(_date(post.createdAt), style: Theme.of(context).textTheme.bodySmall),
+                      Text(post.author, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+                      Text(_date(post.createdAt), style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
                     ],
                   ),
                 ),

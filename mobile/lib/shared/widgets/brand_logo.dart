@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 
 class BrandLogo extends StatelessWidget {
   const BrandLogo({super.key, this.size = 88, this.showLabel = true});
@@ -17,8 +16,8 @@ class BrandLogo extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.all(16),
             color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.4),
-            child: SvgPicture.asset(
-              'assets/Designer.svg',
+            child: Image.asset(
+              'assets/Designer.png',
               width: size,
               height: size,
               fit: BoxFit.contain,

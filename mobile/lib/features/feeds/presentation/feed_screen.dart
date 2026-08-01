@@ -19,6 +19,10 @@ class FeedScreen extends ConsumerWidget {
         actions: [
           IconButton(onPressed: () {}, icon: const Icon(Icons.add_circle_outline), tooltip: 'Create post'),
         ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Container(height: 1, color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.4)),
+        ),
       ),
       body: feed.when(
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -29,9 +33,22 @@ class FeedScreen extends ConsumerWidget {
             child: posts.isEmpty
                 ? ListView(
                     padding: const EdgeInsets.all(24),
-                    children: const [
-                      SizedBox(height: 160),
-                      Center(child: Text('Your feed is ready for your first connection.')),
+                    children: [
+                      const SizedBox(height: 80),
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            children: [
+                              Icon(Icons.auto_awesome_outlined, size: 44, color: Theme.of(context).colorScheme.primary),
+                              const SizedBox(height: 12),
+                              Text('Your feed is ready', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                              const SizedBox(height: 8),
+                              Text('Follow more people and the latest posts will appear here.', textAlign: TextAlign.center, style: Theme.of(context).textTheme.bodyMedium),
+                            ],
+                          ),
+                        ),
+                      ),
                     ],
                   )
                 : ListView.builder(

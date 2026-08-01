@@ -986,7 +986,8 @@ def get_user_cover(user_id):
 
 @app.route('/<filename>')
 def static_files(filename):
-    return send_from_directory(os.path.join(app.root_path, 'static/uploads'), filename)
+    safe_name = os.path.basename(filename)
+    return send_from_directory(app.config["UPLOAD_FOLDER"], safe_name)
 
 @app.route('/static/sidebar_images/<filename>')
 def serve_sidebar_image(filename):
@@ -2234,7 +2235,10 @@ def mark_all_read():
 def handle_connect():
     try:
         verify_jwt_in_request()
-        join_room(f"user_{get_jwt_identity()}")
+        user_id = get_jwt_identity()
+        if user_id is not None:
+            join_room(f"user_{user_id}")
+        return True
     except Exception:
         return False
 
