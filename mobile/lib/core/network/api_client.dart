@@ -54,6 +54,7 @@ class ApiClient {
   Future<Map<String, dynamic>> get(String path, {Map<String, dynamic>? query}) => _request(() => dio.get(path, queryParameters: query));
   Future<Map<String, dynamic>> post(String path, {Object? data, ProgressCallback? onSendProgress}) => _request(() => dio.post(path, data: data, onSendProgress: onSendProgress));
   Future<Map<String, dynamic>> delete(String path) => _request(() => dio.delete(path));
+  Future<Map<String, dynamic>> put(String path, {Object? data}) => _request(() => dio.put(path, data: data));
 
   Future<Map<String, dynamic>> _request(Future<Response<dynamic>> Function() call) async {
     try {

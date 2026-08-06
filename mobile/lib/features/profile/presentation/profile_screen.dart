@@ -2,10 +2,12 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../shared/utils/profile_image.dart';
 import '../../feeds/presentation/feed_controller.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
-  const ProfileScreen({super.key});
+  const ProfileScreen({super.key, this.userId});
+  final int? userId;
 
   @override
   ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
@@ -14,6 +16,7 @@ class ProfileScreen extends ConsumerStatefulWidget {
 class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   Map<String, dynamic>? _user;
   bool _loading = true;
+  bool _sendingRequest = false;
 
   @override
   void initState() {
@@ -24,7 +27,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   Future<void> _load() async {
     try {
       final api = ref.read(apiProvider);
-      final data = await api.get('/api/current_user');
+      final endpoint = widget.userId == null ? '/api/current_user' : '/api/user/${widget.userId}';
+      final data = await api.get(endpoint);
       if (mounted) setState(() => _user = data as Map<String, dynamic>? ?? {});
     } catch (_) {
       if (mounted) setState(() => _user = {});
@@ -33,12 +37,29 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     }
   }
 
+  Future<void> _sendFriendRequest() async {
+    if (widget.userId == null || _sendingRequest) return;
+    setState(() => _sendingRequest = true);
+    try {
+      await ref.read(apiProvider).post('/api/send-friend-request', data: {'userId': widget.userId});
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Friend request sent.')));
+        await _load();
+      }
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+    } finally {
+      if (mounted) setState(() => _sendingRequest = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = _user ?? {};
-    final picture = user['picture'] as String?;
+    final picture = resolveProfileImageUrl((user['avatar'] as String?) ?? (user['picture'] as String?));
+    final viewingOwnProfile = widget.userId == null;
     return Scaffold(
-      appBar: AppBar(title: const Text('Profile'), actions: [IconButton(onPressed: () => context.push('/settings'), icon: const Icon(Icons.settings_outlined))]),
+      appBar: AppBar(title: Text(viewingOwnProfile ? 'Profile' : (user['name'] as String? ?? 'Profile')), actions: viewingOwnProfile ? [IconButton(onPressed: () => context.push('/profile/edit'), icon: const Icon(Icons.edit_outlined), tooltip: 'Edit profile'), IconButton(onPressed: () => context.push('/settings'), icon: const Icon(Icons.settings_outlined))] : []),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
@@ -65,6 +86,16 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
+                  if (viewingOwnProfile) ...[
+                    FilledButton.icon(onPressed: () => context.push('/profile/edit'), icon: const Icon(Icons.edit_outlined), label: const Text('Edit profile')),
+                    const SizedBox(height: 8),
+                  ] else if (user['is_friend'] == true) ...[
+                    FilledButton.icon(onPressed: null, icon: const Icon(Icons.check_circle_outline), label: const Text('Already friends')),
+                    const SizedBox(height: 8),
+                  ] else ...[
+                    FilledButton.icon(onPressed: _sendingRequest ? null : _sendFriendRequest, icon: const Icon(Icons.person_add_alt_1_outlined), label: Text(_sendingRequest ? 'Sending...' : 'Add friend')),
+                    const SizedBox(height: 8),
+                  ],
                   _StatTile(Icons.group_outlined, 'Friends', '${user['friend_count'] ?? 0}', () => context.push('/friends')),
                   _StatTile(Icons.forum_outlined, 'Messages', 'Open chat', () => context.push('/messages')),
                   ListTile(

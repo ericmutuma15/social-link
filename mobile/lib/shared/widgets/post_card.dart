@@ -1,13 +1,16 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../models/post.dart';
+import 'post_media.dart';
 
 class PostCard extends StatelessWidget {
-  const PostCard({super.key, required this.post, required this.onLike, required this.onDelete});
+  const PostCard({super.key, required this.post, required this.onLike, required this.onDelete, required this.onComments, this.onUserTap});
 
   final Post post;
   final VoidCallback onLike;
   final Future<void> Function() onDelete;
+  final VoidCallback onComments;
+  final VoidCallback? onUserTap;
 
   @override
   Widget build(BuildContext context) {
@@ -20,17 +23,21 @@ class PostCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                CircleAvatar(
-                  radius: 22,
-                  backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-                  child: Text(post.author.isEmpty ? 'U' : post.author.substring(0, 1).toUpperCase()),
+                GestureDetector(
+                  onTap: onUserTap,
+                  child: CircleAvatar(
+                    radius: 22,
+                    backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                    foregroundImage: post.authorPhoto == null ? null : CachedNetworkImageProvider(post.authorPhoto!),
+                    child: Text(post.author.isEmpty ? 'U' : post.author.substring(0, 1).toUpperCase()),
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(post.author, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+                      InkWell(onTap: onUserTap, child: Text(post.author, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700))),
                       Text(_date(post.createdAt), style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
                     ],
                   ),
@@ -59,14 +66,7 @@ class PostCard extends StatelessWidget {
                 padding: const EdgeInsets.only(top: 12),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(16),
-                  child: CachedNetworkImage(
-                    imageUrl: post.mediaUrl!,
-                    fit: BoxFit.cover,
-                    errorWidget: (_, _, _) => const AspectRatio(
-                      aspectRatio: 16 / 9,
-                      child: Center(child: Icon(Icons.broken_image_outlined)),
-                    ),
-                  ),
+                  child: PostMedia(url: post.mediaUrl!, type: post.mediaType),
                 ),
               ),
             const SizedBox(height: 8),
@@ -86,7 +86,7 @@ class PostCard extends StatelessWidget {
                 ),
                 Text('${post.likes}'),
                 const Spacer(),
-                IconButton(onPressed: () {}, icon: const Icon(Icons.mode_comment_outlined), tooltip: 'Comment'),
+                IconButton(onPressed: onComments, icon: const Icon(Icons.mode_comment_outlined), tooltip: 'Comment'),
                 IconButton(onPressed: () {}, icon: Icon(post.bookmarked ? Icons.bookmark : Icons.bookmark_border), tooltip: 'Bookmark'),
               ],
             ),

@@ -442,13 +442,23 @@ def public_profile_url(picture):
     return public_media_url(f"/static/{picture}") if picture else None
 
 
+def profile_avatar_url(user):
+    if not user:
+        return None
+    if getattr(user, 'avatar_data', None):
+        return url_for('get_user_avatar', user_id=user.id, _external=True)
+    if user.picture:
+        return url_for('serve_image', filename=user.picture, _external=True)
+    return None
+
+
 def serialize_comment(comment, current_user_id=None):
     return {
         "id": comment.id,
         "content": comment.content,
         "user_id": comment.user_id,
         "user_name": comment.user.name if comment.user else "Unknown",
-        "user_photo": public_profile_url(comment.user.picture if comment.user else None),
+        "user_photo": profile_avatar_url(comment.user) if comment.user else None,
         "timestamp": comment.timestamp.isoformat(),
         "is_owner": comment.user_id == current_user_id,
     }
@@ -460,7 +470,7 @@ def serialize_post(post, current_user_id=None, include_comments=True):
         "id": post.id,
         "user_id": post.user_id,
         "user_name": post.user.name if post.user else "Unknown",
-        "user_photo": public_profile_url(post.user.picture if post.user else None),
+        "user_photo": profile_avatar_url(post.user) if post.user else None,
         "content": post.content,
         "media_url": public_media_url(post.media_url),
         "media_type": media_type_for(post.media_url) if post.media_url else None,
@@ -1857,6 +1867,7 @@ def get_user_by_id(user_id):
             'description': user.description,
             'location': user.location,
             'picture': picture_url,
+            'avatar': profile_avatar_url(user),
             'cover_photo': public_profile_url(user.cover_photo),
             'occupation': user.occupation,
             'company': user.company,
@@ -2097,7 +2108,7 @@ def get_friends():
         {
             "id": friend.id,
             "name": friend.name,
-            "profile_pic": f"{request.host_url}static/{friend.picture}" if friend.picture else f"{request.host_url}static/default.jpg"
+            "profile_pic": profile_avatar_url(friend) or f"{request.host_url}static/default.jpg"
         }
         for friend in friends
     ]

@@ -1,10 +1,12 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../../../shared/models/post.dart';
 import '../../../shared/widgets/app_async.dart';
 import '../../../shared/widgets/post_card.dart';
 import 'feed_controller.dart';
+import 'comments_sheet.dart';
 
 class FeedScreen extends ConsumerWidget {
   const FeedScreen({super.key});
@@ -15,9 +17,9 @@ class FeedScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('For you'),
+        title: Row(children: [Image.asset('assets/Designer.png', width: 30, height: 30), const SizedBox(width: 8), const Text('Mbogi Link')]),
         actions: [
-          IconButton(onPressed: () {}, icon: const Icon(Icons.add_circle_outline), tooltip: 'Create post'),
+          IconButton(onPressed: () => context.push('/posts/create'), icon: const Icon(Icons.add_circle_outline), tooltip: 'Create post'),
         ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
@@ -60,6 +62,7 @@ class FeedScreen extends ConsumerWidget {
                         duration: const Duration(milliseconds: 220),
                         child: PostCard(
                           post: post,
+                          onUserTap: post.userId == null ? null : () => context.push('/profile/${post.userId}'),
                           onLike: () async {
                             try {
                               await ref.read(feedProvider.notifier).toggleLike(post);
@@ -68,6 +71,7 @@ class FeedScreen extends ConsumerWidget {
                             }
                           },
                           onDelete: () => _confirmDelete(context, ref, post),
+                          onComments: () => showModalBottomSheet(context: context, isScrollControlled: true, showDragHandle: false, builder: (_) => CommentsSheet(postId: post.id)),
                         ),
                       );
                     },

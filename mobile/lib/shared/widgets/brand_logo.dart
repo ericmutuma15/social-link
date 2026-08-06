@@ -30,12 +30,6 @@ class BrandLogo extends StatelessWidget {
             'Mbogi Link',
             style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
           ),
-          const SizedBox(height: 4),
-          Text(
-            'A native companion for the web experience',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
-            textAlign: TextAlign.center,
-          ),
         ],
       ],
     );

@@ -11,6 +11,9 @@ import 'features/messages/presentation/messages_screen.dart';
 import 'features/notifications/presentation/notifications_screen.dart';
 import 'features/profile/presentation/profile_screen.dart';
 import 'features/settings/presentation/settings_screen.dart';
+import 'features/posts/presentation/create_post_screen.dart';
+import 'features/messages/presentation/chat_screen.dart';
+import 'features/profile/presentation/edit_profile_screen.dart';
 import 'features/shell/presentation/app_shell.dart';
 
 void main() => runApp(const ProviderScope(child: MbogiApp()));
@@ -23,10 +26,14 @@ final _router = GoRouter(
     GoRoute(path: '/home', builder: (_, _) => const AppShell()),
     GoRoute(path: '/explore', builder: (_, _) => const ExploreScreen()),
     GoRoute(path: '/messages', builder: (_, _) => const MessagesScreen()),
+    GoRoute(path: '/messages/:userId', builder: (_, state) => ChatScreen(userId: int.parse(state.pathParameters['userId']!), name: state.extra as String? ?? 'Conversation')),
     GoRoute(path: '/notifications', builder: (_, _) => const NotificationsScreen()),
     GoRoute(path: '/profile', builder: (_, _) => const ProfileScreen()),
+    GoRoute(path: '/profile/edit', builder: (_, _) => const EditProfileScreen()),
+    GoRoute(path: '/profile/:userId', builder: (_, state) => ProfileScreen(userId: int.tryParse(state.pathParameters['userId'] ?? ''))),
     GoRoute(path: '/friends', builder: (_, _) => const FriendsScreen()),
     GoRoute(path: '/settings', builder: (_, _) => const SettingsScreen()),
+    GoRoute(path: '/posts/create', builder: (_, _) => const CreatePostScreen()),
   ],
 );
 

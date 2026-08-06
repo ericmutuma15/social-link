@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../../feeds/presentation/feed_controller.dart';
 
 class MessagesScreen extends ConsumerStatefulWidget {
@@ -22,7 +24,7 @@ class _MessagesScreenState extends ConsumerState<MessagesScreen> {
   Future<void> _load() async {
     try {
       final result = await ref.read(apiProvider).get('/api/chats');
-      setState(() => _chats = (result as List<dynamic>? ?? []).cast<Map<String, dynamic>>());
+      setState(() => _chats = (result['data'] as List<dynamic>? ?? const []).cast<Map<String, dynamic>>());
     } catch (_) {
       setState(() => _chats = const []);
     } finally {
@@ -46,10 +48,14 @@ class _MessagesScreenState extends ConsumerState<MessagesScreen> {
                     final chat = _chats[index];
                     return Card(
                       child: ListTile(
-                        leading: CircleAvatar(child: Text((chat['name'] as String? ?? 'U').substring(0, 1).toUpperCase())),
+                        leading: GestureDetector(
+                          onTap: () => context.push('/profile/${chat['id']}'),
+                          child: CircleAvatar(backgroundImage: chat['profile_pic'] == null ? null : CachedNetworkImageProvider(chat['profile_pic'] as String), child: chat['profile_pic'] == null ? Text((chat['name'] as String? ?? 'U').substring(0, 1).toUpperCase()) : null),
+                        ),
                         title: Text(chat['name'] as String? ?? 'Conversation'),
                         subtitle: Text(chat['last_message'] as String? ?? 'Start a conversation'),
                         trailing: chat['unread_count'] != null && (chat['unread_count'] as int) > 0 ? Chip(label: Text('${chat['unread_count']}')) : null,
+                        onTap: () => context.push('/messages/${chat['id']}', extra: chat['name'] as String? ?? 'Conversation'),
                       ),
                     );
                   },
