@@ -28,8 +28,9 @@ class ApiClient {
           return;
         }
         try {
-          final result = await Dio(BaseOptions(baseUrl: AppConfig.apiBaseUrl)).get<Map<String, dynamic>>(
-            '/api/token',
+          final result = await Dio(BaseOptions(baseUrl: AppConfig.apiBaseUrl)).post<Map<String, dynamic>>(
+            '/api/refresh',
+            data: const {'mobile_client': true},
             options: Options(headers: {'Authorization': 'Bearer $refresh', 'X-Mobile-Client': 'flutter'}),
           );
           final data = result.data?['data'] as Map<String, dynamic>?;
@@ -55,6 +56,7 @@ class ApiClient {
   Future<Map<String, dynamic>> post(String path, {Object? data, ProgressCallback? onSendProgress}) => _request(() => dio.post(path, data: data, onSendProgress: onSendProgress));
   Future<Map<String, dynamic>> delete(String path) => _request(() => dio.delete(path));
   Future<Map<String, dynamic>> put(String path, {Object? data}) => _request(() => dio.put(path, data: data));
+  Future<Map<String, dynamic>> patch(String path, {Object? data}) => _request(() => dio.patch(path, data: data));
 
   Future<Map<String, dynamic>> _request(Future<Response<dynamic>> Function() call) async {
     try {
@@ -63,8 +65,10 @@ class ApiClient {
       return data is Map<String, dynamic> ? data : {'data': data};
     } on DioException catch (error) {
       final payload = error.response?.data;
+      final errors = payload is Map ? payload['errors'] : null;
       final message = payload is Map ? payload['message']?.toString() : null;
-      throw ApiException(message ?? _friendly(error), statusCode: error.response?.statusCode);
+      final detail = errors is List && errors.isNotEmpty ? errors.join(' ') : null;
+      throw ApiException(detail ?? message ?? _friendly(error), statusCode: error.response?.statusCode);
     }
   }
 

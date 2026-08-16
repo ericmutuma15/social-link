@@ -8,7 +8,7 @@ import {
   useTheme
 } from "../../context/ThemeContext";
 
-const BG = "/Designer.svg";
+const BG = "/Designer.png";
 
 const LoadingPage = () => {
 

@@ -10,7 +10,7 @@ class AuthRepository {
   }
 
   Future<Map<String, dynamic>> register(String name, String email, String password) async {
-    final result = await _api.post('/api/register', data: {'name': name, 'email': email, 'password': password});
+    final result = await _api.post('/api/register', data: {'name': name, 'email': email, 'password': password, 'mobile_client': true});
     return result['data'] as Map<String, dynamic>? ?? {};
   }
 

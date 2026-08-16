@@ -79,6 +79,7 @@ def test_profile_update_without_name_preserves_existing_profile_fields():
 
 def test_register_returns_verification_status(monkeypatch):
     app_module = importlib.import_module("app")
+    monkeypatch.setitem(app_module.app.config, "REQUIRE_EMAIL_VERIFICATION", True)
 
     def fake_send_email(subject, recipient, body):
         return True

@@ -15,6 +15,7 @@ import 'features/posts/presentation/create_post_screen.dart';
 import 'features/messages/presentation/chat_screen.dart';
 import 'features/profile/presentation/edit_profile_screen.dart';
 import 'features/shell/presentation/app_shell.dart';
+import 'features/stories/presentation/story_camera_explorer.dart';
 
 void main() => runApp(const ProviderScope(child: MbogiApp()));
 
@@ -34,19 +35,20 @@ final _router = GoRouter(
     GoRoute(path: '/friends', builder: (_, _) => const FriendsScreen()),
     GoRoute(path: '/settings', builder: (_, _) => const SettingsScreen()),
     GoRoute(path: '/posts/create', builder: (_, _) => const CreatePostScreen()),
+    GoRoute(path: '/stories/camera', builder: (context, state) => const StoryCameraExplorer()),
   ],
 );
 
-class MbogiApp extends StatelessWidget {
+class MbogiApp extends ConsumerWidget {
   const MbogiApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return MaterialApp.router(
       routerConfig: _router,
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
-      themeMode: ThemeMode.system,
+      themeMode: ref.watch(themeModeProvider),
       debugShowCheckedModeBanner: false,
     );
   }

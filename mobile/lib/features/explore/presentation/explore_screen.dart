@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../shared/utils/profile_image.dart';
+import '../../../shared/widgets/top_menu.dart';
 import '../../feeds/presentation/feed_controller.dart';
 
 class ExploreScreen extends ConsumerStatefulWidget {
@@ -37,7 +38,7 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Explore')),
+      appBar: AppBar(title: const Text('Explore'), actions: const [TopMenuButton()]),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _items.isEmpty

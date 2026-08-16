@@ -4,12 +4,13 @@ import '../models/post.dart';
 import 'post_media.dart';
 
 class PostCard extends StatelessWidget {
-  const PostCard({super.key, required this.post, required this.onLike, required this.onDelete, required this.onComments, this.onUserTap});
+  const PostCard({super.key, required this.post, required this.onLike, required this.onDelete, required this.onComments, this.onEdit, this.onUserTap});
 
   final Post post;
   final VoidCallback onLike;
   final Future<void> Function() onDelete;
   final VoidCallback onComments;
+  final VoidCallback? onEdit;
   final VoidCallback? onUserTap;
 
   @override
@@ -45,7 +46,9 @@ class PostCard extends StatelessWidget {
                 if (post.isOwner)
                   PopupMenuButton<String>(
                     onSelected: (value) {
-                      if (value == 'delete') {
+                      if (value == 'edit') {
+                        onEdit?.call();
+                      } else if (value == 'delete') {
                         onDelete();
                       }
                     },

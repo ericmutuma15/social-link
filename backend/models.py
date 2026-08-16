@@ -92,6 +92,7 @@ class Post(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     content = db.Column(db.Text, nullable=True)  # Text, images, videos, quotes, etc.
     media_url = db.Column(db.String(300), nullable=True)  # URL or file path for media
+    thumbnail_url = db.Column(db.String(300), nullable=True)  # Optional thumbnail for video/image
     timestamp = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     # Relationships
@@ -115,6 +116,9 @@ class Comment(db.Model):  # New Comment model
     timestamp = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     post_id = db.Column(db.Integer, db.ForeignKey('posts.id'), nullable=False)
+    # Optional attachment stored as a relative public path (e.g. /static/uploads/xyz)
+    attachment_url = db.Column(db.String(300), nullable=True)
+    attachment_name = db.Column(db.String(255), nullable=True)
 
     # Relationships
     user = db.relationship('User', back_populates='comments')
@@ -179,11 +183,29 @@ class Story(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     content = db.Column(db.Text)
     media_url = db.Column(db.String(300))
+    thumbnail_url = db.Column(db.String(300), nullable=True)
     media_type = db.Column(db.String(20), default='text', nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     expires_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.utcnow()+ timedelta(hours=24)
 )
     user = db.relationship('User', backref=db.backref('stories', lazy='dynamic'))
+
+
+class BlockedUser(db.Model):
+    __tablename__ = 'blocked_users'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    blocked_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    user = db.relationship('User', foreign_keys=[user_id], backref=db.backref('blocked_users', lazy='dynamic', cascade='all, delete-orphan'))
+    blocked_user = db.relationship('User', foreign_keys=[blocked_user_id], backref=db.backref('blocked_by_users', lazy='dynamic', cascade='all, delete-orphan'))
+
+    __table_args__ = (db.UniqueConstraint('user_id', 'blocked_user_id', name='unique_user_block'),)
+
+    def __repr__(self):
+        return f"<BlockedUser {self.user_id} -> {self.blocked_user_id}>"
+
 
 class Message(db.Model):
     __tablename__ = 'messages'

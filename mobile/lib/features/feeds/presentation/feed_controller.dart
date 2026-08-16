@@ -32,4 +32,14 @@ class FeedController extends AsyncNotifier<List<Post>> {
     try { final result = await _repository.like(post.id); state = AsyncData([for (final item in state.valueOrNull ?? before) if (item.id == post.id) item.copyWith(liked: result.liked, likes: result.likes) else item]); } catch (_) { state = AsyncData(before); rethrow; }
   }
   Future<void> delete(Post post) async { final before = state.valueOrNull ?? const []; state = AsyncData(before.where((item) => item.id != post.id).toList()); try { await _repository.deletePost(post.id); } catch (_) { state = AsyncData(before); rethrow; } }
+  Future<void> updatePost(Post post, String content) async {
+    final before = state.valueOrNull ?? const [];
+    try {
+      final updated = await _repository.updatePost(post.id, content);
+      state = AsyncData([for (final item in before) if (item.id == post.id) updated else item]);
+    } catch (_) {
+      state = AsyncData(before);
+      rethrow;
+    }
+  }
 }

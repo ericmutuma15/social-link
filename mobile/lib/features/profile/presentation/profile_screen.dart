@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../shared/utils/profile_image.dart';
 import '../../feeds/presentation/feed_controller.dart';
+import '../../../shared/widgets/top_menu.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key, this.userId});
@@ -59,7 +60,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final picture = resolveProfileImageUrl((user['avatar'] as String?) ?? (user['picture'] as String?));
     final viewingOwnProfile = widget.userId == null;
     return Scaffold(
-      appBar: AppBar(title: Text(viewingOwnProfile ? 'Profile' : (user['name'] as String? ?? 'Profile')), actions: viewingOwnProfile ? [IconButton(onPressed: () => context.push('/profile/edit'), icon: const Icon(Icons.edit_outlined), tooltip: 'Edit profile'), IconButton(onPressed: () => context.push('/settings'), icon: const Icon(Icons.settings_outlined))] : []),
+      appBar: AppBar(title: Text(viewingOwnProfile ? 'Profile' : (user['name'] as String? ?? 'Profile')), actions: viewingOwnProfile ? [IconButton(onPressed: () => context.push('/profile/edit'), icon: const Icon(Icons.edit_outlined), tooltip: 'Edit profile'), IconButton(onPressed: () => context.push('/settings'), icon: const Icon(Icons.settings_outlined)), const TopMenuButton()] : [const TopMenuButton()]),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
@@ -98,16 +99,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   ],
                   _StatTile(Icons.group_outlined, 'Friends', '${user['friend_count'] ?? 0}', () => context.push('/friends')),
                   _StatTile(Icons.forum_outlined, 'Messages', 'Open chat', () => context.push('/messages')),
-                  ListTile(
-                    leading: const Icon(Icons.logout),
-                    title: const Text('Logout'),
-                    onTap: () async {
-                      await ref.read(tokenStorageProvider).clear();
-                      if (mounted && context.mounted) {
-                        context.go('/login');
-                      }
-                    },
-                  ),
                 ],
               ),
             ),

@@ -20,7 +20,14 @@ class _AuthController {
 
   Future<void> register(String name, String email, String password) async {
     final api = _ref.read(apiProvider);
-    await api.post('/api/register', data: {'name': name, 'email': email, 'password': password});
+    final result = await api.post('/api/register', data: {'name': name, 'email': email, 'password': password, 'mobile_client': true});
+    final data = result['data'] as Map<String, dynamic>? ?? const {};
+    final access = data['access_token'] as String?;
+    final refresh = data['refresh_token'] as String?;
+    if ((access ?? '').isEmpty || (refresh ?? '').isEmpty) {
+      throw const ApiException('Your account was created, but we could not start a session. Please sign in.');
+    }
+    await _ref.read(tokenStorageProvider).save(accessToken: access!, refreshToken: refresh!);
   }
 }
 
@@ -36,6 +43,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final _name = TextEditingController();
   final _email = TextEditingController();
   final _password = TextEditingController();
+  final _confirmation = TextEditingController();
   var _loading = false;
 
   @override
@@ -43,6 +51,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     _name.dispose();
     _email.dispose();
     _password.dispose();
+    _confirmation.dispose();
     super.dispose();
   }
 
@@ -63,13 +72,18 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   const SizedBox(height: 16),
                   Text('Join the circle', style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w700), textAlign: TextAlign.center),
                   const SizedBox(height: 24),
-                  TextFormField(controller: _name, decoration: const InputDecoration(labelText: 'Your name', prefixIcon: Icon(Icons.person_outline)), validator: (value) => (value?.trim().isNotEmpty ?? false) ? null : 'Please enter your name'),
+                  TextFormField(controller: _name, textCapitalization: TextCapitalization.words, decoration: const InputDecoration(labelText: 'Your name', prefixIcon: Icon(Icons.person_outline)), validator: (value) {
+                    final name = value?.trim() ?? '';
+                    return name.length >= 2 && name.length <= 100 ? null : 'Enter a name between 2 and 100 characters';
+                  }),
+                  TextFormField(controller: _email, keyboardType: TextInputType.emailAddress, autocorrect: false, decoration: const InputDecoration(labelText: 'Email address', prefixIcon: Icon(Icons.email_outlined)), validator: (value) => RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(value?.trim() ?? '') ? null : 'Enter a valid email address'),
                   const SizedBox(height: 14),
-                  TextFormField(controller: _email, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: 'Email address', prefixIcon: Icon(Icons.email_outlined)), validator: (value) => value != null && value.contains('@') ? null : 'Enter a valid email'),
                   const SizedBox(height: 14),
-                  TextFormField(controller: _password, obscureText: true, decoration: const InputDecoration(labelText: 'Password', prefixIcon: Icon(Icons.lock_outline)), validator: (value) => (value?.length ?? 0) >= 6 ? null : 'Use at least 6 characters'),
+                  TextFormField(controller: _password, obscureText: true, enableSuggestions: false, autocorrect: false, decoration: const InputDecoration(labelText: 'Password', helperText: '12+ characters with upper, lower, number and symbol', prefixIcon: Icon(Icons.lock_outline)), validator: _passwordError),
+                  const SizedBox(height: 14),
+                  TextFormField(controller: _confirmation, obscureText: true, enableSuggestions: false, autocorrect: false, decoration: const InputDecoration(labelText: 'Confirm password', prefixIcon: Icon(Icons.lock_outline)), validator: (value) => value == _password.text ? null : 'Passwords do not match'),
                   const SizedBox(height: 20),
-                  FilledButton(onPressed: _loading ? null : _submit, child: _loading ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Create account')),
+                  FilledButton(onPressed: _loading ? null : _submit, child: _loading ? const Row(mainAxisSize: MainAxisSize.min, children: [SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2)), SizedBox(width: 10), Text('Creating account...')]) : const Text('Create account')),
                 ],
               ),
             ),
@@ -85,12 +99,20 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     try {
       await ref.read(authControllerProvider).register(_name.text.trim(), _email.text.trim(), _password.text);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Account created. Please check your email if verification is required.')));
-      context.pop();
+      context.go('/home');
     } on ApiException catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.message)));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  String? _passwordError(String? value) {
+    final password = value ?? '';
+    if (password.length < 12) return 'Use at least 12 characters';
+    if (!RegExp(r'[A-Z]').hasMatch(password) || !RegExp(r'[a-z]').hasMatch(password) || !RegExp(r'\d').hasMatch(password) || !RegExp(r'[^\w\s]').hasMatch(password)) {
+      return 'Include upper and lower case letters, a number and a symbol';
+    }
+    return null;
   }
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../feeds/presentation/feed_controller.dart';
+import '../../../shared/widgets/top_menu.dart';
 
 class NotificationsScreen extends ConsumerStatefulWidget {
   const NotificationsScreen({super.key});
@@ -34,7 +35,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Notifications')),
+      appBar: AppBar(title: const Text('Notifications'), actions: const [TopMenuButton()]),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _items.isEmpty

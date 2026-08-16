@@ -35,6 +35,10 @@ class Config:
     MAIL_USERNAME = (os.getenv("MAIL_USERNAME") or "").strip()
     MAIL_PASSWORD = (os.getenv("MAIL_PASSWORD") or "").strip().replace(" ", "")
     MAIL_DEFAULT_SENDER = (os.getenv("MAIL_DEFAULT_SENDER") or "no-reply@example.com").strip()
+    # Email verification is opt-in.  Requiring it without a working mail
+    # provider creates accounts which can never sign in, especially for native
+    # clients where the user cannot recover through a browser-only flow.
+    REQUIRE_EMAIL_VERIFICATION = os.getenv("REQUIRE_EMAIL_VERIFICATION", "false").lower() == "true"
     FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
     MAX_CONTENT_LENGTH = int(os.getenv("MAX_CONTENT_LENGTH", str(25 * 1024 * 1024)))
     # Use Redis in production so rate limits are shared across Gunicorn workers.

@@ -222,6 +222,7 @@ from models import (
     Story,
     TokenBlocklist,
     AuditLog,
+    BlockedUser,
 )
 
 db.init_app(app)
@@ -460,6 +461,8 @@ def serialize_comment(comment, current_user_id=None):
         "user_name": comment.user.name if comment.user else "Unknown",
         "user_photo": profile_avatar_url(comment.user) if comment.user else None,
         "timestamp": comment.timestamp.isoformat(),
+        "attachment_url": public_media_url(comment.attachment_url) if getattr(comment, 'attachment_url', None) else None,
+        "attachment_name": comment.attachment_name if getattr(comment, 'attachment_name', None) else None,
         "is_owner": comment.user_id == current_user_id,
     }
 
@@ -473,6 +476,7 @@ def serialize_post(post, current_user_id=None, include_comments=True):
         "user_photo": profile_avatar_url(post.user) if post.user else None,
         "content": post.content,
         "media_url": public_media_url(post.media_url),
+        "thumbnail_url": public_media_url(post.thumbnail_url) if getattr(post, 'thumbnail_url', None) else None,
         "media_type": media_type_for(post.media_url) if post.media_url else None,
         "timestamp": post.timestamp.isoformat(),
         "likes": post.like_count(),
@@ -540,7 +544,13 @@ def session_status():
 def refresh():
     current_user = get_jwt_identity()
     new_token = create_access_token(identity=current_user)
-    response = jsonify({"success": True, "message": "Token refreshed", "data": None, "errors": []})
+    mobile_client = bool((request.get_json(silent=True) or {}).get("mobile_client") or request.headers.get("X-Mobile-Client"))
+    response = jsonify({
+        "success": True,
+        "message": "Token refreshed",
+        "data": {"access_token": new_token} if mobile_client else None,
+        "errors": [],
+    })
     set_access_cookies(response, new_token)
     return response
 
@@ -559,8 +569,15 @@ def register():
     if errors:
         return api_response(message="Registration validation failed", status=422, errors=errors)
 
+    verification_required = bool(app.config.get("REQUIRE_EMAIL_VERIFICATION"))
+    mail_ready, _ = mail_delivery_ready()
+    if verification_required and not mail_ready:
+        # Fail before inserting anything: a retry must not hit a misleading
+        # duplicate-email error after an account was only partially provisioned.
+        return api_response(message="Account verification is temporarily unavailable. Please try again later.", status=503)
+
     if User.query.filter_by(email=email).first():
-        return api_response(message="Email already registered", status=409)
+        return api_response(message="An account with this email already exists. Try logging in instead.", status=409)
 
     is_super_user = email == "ericmutuma15@gmail.com"
 
@@ -577,8 +594,7 @@ def register():
         db.session.add(new_user)
         db.session.flush()
         verification_sent = False
-        mail_ready, _ = mail_delivery_ready()
-        if mail_ready:
+        if verification_required and mail_ready:
             token = make_account_token(new_user.id, "verify")
             new_user.verification_token = hashlib.sha256(token.encode()).hexdigest()
             new_user.verification_sent_at = datetime.utcnow()
@@ -586,10 +602,9 @@ def register():
             verification_sent = send_account_email("Verify your Mbogi account", email, f"Verify your email within 24 hours: {verify_url}")
             if not verification_sent:
                 app.logger.warning("Verification email could not be delivered for %s", email)
-        else:
-            app.logger.warning("Skipping verification email for %s because SMTP delivery is not configured.", email)
-
-        new_user.is_verified = False
+        # Do not create a dead-end account when verification is disabled (the
+        # production default) or the mail service has not been configured.
+        new_user.is_verified = not verification_required
         if not verification_sent:
             new_user.verification_token = None
             new_user.verification_sent_at = None
@@ -598,16 +613,21 @@ def register():
         db.session.commit()
         response_payload = {
             "email": email,
-            "requires_verification": True,
+            "user_id": new_user.id,
+            "requires_verification": verification_required,
             "verification_sent": verification_sent,
         }
+        mobile_client = bool(data.get("mobile_client") or request.headers.get("X-Mobile-Client"))
+        if mobile_client and new_user.is_verified:
+            response_payload.update({
+                "access_token": create_access_token(identity=new_user.id),
+                "refresh_token": create_refresh_token(identity=new_user.id),
+            })
         if verification_sent:
             return api_response(response_payload, "Account created. Please verify your email before logging in.", 201)
-        return api_response(
-            response_payload,
-            "Account created, but we could not send a verification email. Please use the resend option after mail is configured.",
-            201,
-        )
+        if new_user.is_verified:
+            return api_response(response_payload, "Account created successfully.", 201)
+        return api_response(response_payload, "Account created. Please verify your email before logging in.", 201)
 
     except Exception as e:
         db.session.rollback()
@@ -1091,6 +1111,43 @@ def discover_users():
         return jsonify({"error": "Unable to discover users"}), 500
 
 
+@app.route('/api/search', methods=['GET'])
+@jwt_required()
+def search():
+    """Search users and posts. Query param: q"""
+    q = (request.args.get('q') or '').strip()
+    if not q:
+        return api_response(data={'items': []}, message='No query provided')
+    try:
+        # simple case-insensitive contains search
+        like = f"%{q}%"
+        users = User.query.filter(User.name.ilike(like)).limit(20).all()
+        posts = Post.query.filter(Post.content.ilike(like)).limit(50).all()
+
+        items = []
+        for u in users:
+            items.append({
+                'type': 'user',
+                'id': u.id,
+                'name': u.name,
+                'username': getattr(u, 'username', None),
+                'picture': url_for('serve_image', filename=u.picture, _external=True) if u.picture else None,
+            })
+        for p in posts:
+            items.append({
+                'type': 'post',
+                'id': p.id,
+                'content': p.content,
+                'user_id': p.user_id,
+                'user_name': p.user.name if p.user else None,
+            })
+
+        return api_response(data={'items': items}, message='Search results')
+    except Exception as e:
+        app.logger.exception('Search failed')
+        return api_response(message='Search failed', status=500)
+
+
 @app.route("/api/users", methods=["POST"])
 @jwt_required()
 def create_workspace_user():
@@ -1147,6 +1204,18 @@ def get_current_user():
             if user.picture else None
         )
 
+        settings = dict(user.settings or {})
+        privacy = dict(settings.get('privacy') or {})
+        privacy_defaults = {
+            'profile_visibility': 'public',
+            'allow_friend_requests': True,
+            'show_online_status': True,
+            'allow_direct_messages': True,
+        }
+        privacy_defaults.update(privacy)
+        settings['privacy'] = privacy_defaults
+        user.settings = settings
+
         # Send the user data as a JSON response
         data = {
             'id': user.id,
@@ -1179,6 +1248,122 @@ def get_current_user():
     except Exception as e:
         app.logger.error(f"Error fetching user data: {str(e)}")
         return jsonify({"error": f"Error fetching user data: {str(e)}"}), 500
+
+
+def get_default_privacy_settings():
+    return {
+        'profile_visibility': 'public',
+        'allow_friend_requests': True,
+        'show_online_status': True,
+        'allow_direct_messages': True,
+    }
+
+
+@app.route('/api/privacy', methods=['GET', 'PATCH'])
+@jwt_required()
+def manage_privacy_settings():
+    user = User.query.get(get_jwt_identity())
+    if not user:
+        return api_response(message='User not found', status=404)
+
+    settings = dict(user.settings or {})
+    privacy = dict(settings.get('privacy') or {})
+    merged = get_default_privacy_settings()
+    merged.update(privacy)
+    settings['privacy'] = merged
+
+    if request.method == 'GET':
+        user.settings = settings
+        return api_response(data={'privacy': merged}, message='Privacy settings loaded')
+
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return api_response(message='Privacy settings must be provided as a JSON object', status=400)
+
+    allowed_keys = {'profile_visibility', 'allow_friend_requests', 'show_online_status', 'allow_direct_messages'}
+    invalid_keys = set(payload.keys()) - allowed_keys
+    if invalid_keys:
+        return api_response(message=f"Unsupported privacy keys: {', '.join(sorted(invalid_keys))}", status=400)
+
+    if 'profile_visibility' in payload:
+        value = str(payload['profile_visibility']).lower()
+        if value not in {'public', 'friends', 'private'}:
+            return api_response(message='Profile visibility must be public, friends, or private.', status=400)
+        merged['profile_visibility'] = value
+
+    for key in ('allow_friend_requests', 'show_online_status', 'allow_direct_messages'):
+        if key in payload:
+            if not isinstance(payload[key], bool):
+                return api_response(message=f'{key} must be true or false.', status=400)
+            merged[key] = payload[key]
+
+    settings['privacy'] = merged
+    user.settings = settings
+    db.session.commit()
+    return api_response(data={'privacy': merged}, message='Privacy settings updated')
+
+
+@app.route('/api/blocks', methods=['GET'])
+@jwt_required()
+def list_blocked_users():
+    current_user_id = get_jwt_identity()
+    blocks = BlockedUser.query.filter_by(user_id=current_user_id).order_by(BlockedUser.created_at.desc()).all()
+    items = []
+    for block in blocks:
+        target = block.blocked_user
+        items.append({
+            'id': target.id if target else block.blocked_user_id,
+            'name': (target.name if target else 'Unknown user'),
+            'username': target.username if target else None,
+            'avatar': url_for('get_user_avatar', user_id=(target.id if target else block.blocked_user_id), _external=True) if target else None,
+        })
+    return api_response(data={'items': items}, message='Blocked users loaded')
+
+
+@app.route('/api/blocks/<int:blocked_user_id>', methods=['POST', 'DELETE'])
+@jwt_required()
+def manage_block(blocked_user_id):
+    current_user_id = get_jwt_identity()
+    if current_user_id == blocked_user_id:
+        return api_response(message='You cannot block yourself.', status=400)
+
+    target = User.query.get(blocked_user_id)
+    if not target:
+        return api_response(message='User not found', status=404)
+
+    if request.method == 'POST':
+        existing = BlockedUser.query.filter_by(user_id=current_user_id, blocked_user_id=blocked_user_id).first()
+        if existing:
+            return api_response(data={'id': blocked_user_id}, message='User already blocked', status=200)
+        block = BlockedUser(user_id=current_user_id, blocked_user_id=blocked_user_id)
+        db.session.add(block)
+        db.session.commit()
+        return api_response(data={'id': blocked_user_id, 'name': target.name}, message='User blocked', status=201)
+
+    existing = BlockedUser.query.filter_by(user_id=current_user_id, blocked_user_id=blocked_user_id).first()
+    if not existing:
+        return api_response(message='This user is not in your block list', status=404)
+    db.session.delete(existing)
+    db.session.commit()
+    return api_response(data={'id': blocked_user_id}, message='User unblocked')
+
+
+@app.route('/api/about', methods=['GET'])
+def get_about():
+    return api_response(data={
+        'title': 'About Mbogi Link',
+        'summary': 'Mbogi Link helps communities connect, share updates, and keep in touch with the people that matter.',
+        'version': '1.0.0',
+    }, message='About information loaded')
+
+
+@app.route('/api/legal', methods=['GET'])
+def get_legal():
+    return api_response(data={
+        'terms': 'By using Mbogi Link, you agree to use the platform respectfully and legally.',
+        'privacy_notice': 'We protect your account data and only use it to provide core social features.',
+        'contact': 'support@mbogi.dev',
+    }, message='Legal information loaded')
 
 
 @app.route("/api/account", methods=["DELETE"])
@@ -1374,6 +1559,7 @@ def create_post():
         current_user_id = get_jwt_identity()
         form_data = request.form.to_dict(flat=True)
         media = request.files.get('media')
+        thumbnail = request.files.get('thumbnail')
 
         content = (form_data.get('content') or '').strip()
         media_url = None
@@ -1390,6 +1576,21 @@ def create_post():
             media.save(os.path.join(uploads_folder, media_filename))
             media_url = f'/static/uploads/{media_filename}'
 
+        if thumbnail:
+            # accept thumbnail but validate as image
+            thumb_error = None
+            if not thumbnail or not thumbnail.filename:
+                thumb_error = "Choose a thumbnail file to upload."
+            else:
+                ext = thumbnail.filename.rsplit('.', 1)[-1].lower()
+                if ext not in ('png', 'jpg', 'jpeg', 'gif', 'webp', 'avif'):
+                    thumb_error = "Thumbnail must be an image."
+            if thumb_error:
+                return api_response(message=thumb_error, status=400)
+            thumb_filename = f"{uuid.uuid4().hex}_{secure_filename(thumbnail.filename)}"
+            thumbnail.save(os.path.join(uploads_folder, thumb_filename))
+            thumbnail_url = f'/static/uploads/{thumb_filename}'
+
         if len(content) > 5000:
             return api_response(message="Your post is too long.", status=400)
         if not content and not media_url:
@@ -1398,6 +1599,7 @@ def create_post():
         post = Post(
             content=content,
             media_url=media_url,
+            thumbnail_url=thumbnail_url,
             user_id=current_user_id,
             timestamp=datetime.utcnow()
         )
@@ -1486,6 +1688,32 @@ def delete_post(post_id):
             app.logger.warning("Could not remove deleted post media: %s", media_path)
     socketio.emit("post_deleted", {"post_id": post_id, "user_id": user_id})
     return api_response(data={"post_id": post_id}, message="Post deleted")
+
+
+@app.route('/api/posts/<int:post_id>', methods=['PUT'])
+@jwt_required()
+def update_post(post_id):
+    """Update only the text of a post; media replacement remains an explicit upload flow."""
+    user_id = get_jwt_identity()
+    post = Post.query.get(post_id)
+    if not post:
+        return api_response(message="Post not found", status=404)
+    if post.user_id != user_id:
+        return api_response(message="You can only edit your own posts.", status=403)
+    data = request.get_json(silent=True) or {}
+    content = (data.get("content") or "").strip()
+    if len(content) > 5000:
+        return api_response(message="Your post is too long.", status=422)
+    if not content and not post.media_url:
+        return api_response(message="Add text or an attachment to publish your post.", status=422)
+    post.content = content
+    try:
+        db.session.commit()
+        return api_response(data=serialize_post(post, user_id), message="Post updated")
+    except Exception:
+        db.session.rollback()
+        app.logger.exception("Post update failed")
+        return api_response(message="Your post could not be updated. Please try again.", status=500)
 
 
 @app.route('/api/posts/<int:post_id>/like', methods=['POST'])
@@ -1606,8 +1834,11 @@ def add_comment(post_id):
         if not post:
             return api_response(message="Post not found", status=404)
 
+        # Support both JSON and multipart/form-data submissions
         data = request.get_json(silent=True) or {}
-        comment_content = (data.get('content') or "").strip()
+        form = request.form or {}
+        comment_content = ((form.get('content') or data.get('content') or "") or "").strip()
+        attachment = request.files.get('attachment')
         
         if not comment_content:
             return api_response(message="Comment cannot be empty", status=400)
@@ -1615,7 +1846,23 @@ def add_comment(post_id):
         if len(comment_content) > 5000:
             return api_response(message="Comment is too long", status=400)
 
-        new_comment = Comment(content=comment_content, user_id=user_id, post_id=post.id)
+        # Handle optional file attachment
+        attachment_url = None
+        attachment_name = None
+        if attachment:
+            # Validate attachment
+            error = validate_upload(attachment)
+            if error:
+                return api_response(message=error, status=400)
+            uploads_folder = os.path.join(app.root_path, 'static/uploads')
+            if not os.path.exists(uploads_folder):
+                os.makedirs(uploads_folder)
+            att_filename = f"{uuid.uuid4().hex}_{secure_filename(attachment.filename)}"
+            attachment.save(os.path.join(uploads_folder, att_filename))
+            attachment_url = f'/static/uploads/{att_filename}'
+            attachment_name = secure_filename(attachment.filename)
+
+        new_comment = Comment(content=comment_content, user_id=user_id, post_id=post.id, attachment_url=attachment_url, attachment_name=attachment_name)
         db.session.add(new_comment)
         db.session.commit()
         result = serialize_comment(new_comment, user_id)
@@ -2211,16 +2458,48 @@ def stories():
     Story.query.filter(Story.expires_at <= datetime.utcnow()).delete(synchronize_session=False)
     db.session.commit()
     if request.method == 'POST':
-        payload = request.get_json(silent=True) or {}
-        content = (payload.get('content') or '').strip()
-        media_url = payload.get('media_url')
-        media_type = payload.get('media_type') or ('image' if media_url else 'text')
-        if not content and not media_url:
-            return jsonify({"error": "A story needs text or media"}), 400
-        story = Story(user_id=current_user_id, content=content or None, media_url=media_url, media_type=media_type)
-        db.session.add(story)
-        db.session.commit()
-        return jsonify({"id": story.id, "expires_at": story.expires_at.isoformat()}), 201
+        # Accept multipart/form-data uploads (media + optional thumbnail)
+        if request.content_type and request.content_type.startswith('multipart/'):
+            content = (request.form.get('content') or '').strip()
+            media = request.files.get('media')
+            thumbnail = request.files.get('thumbnail')
+            if not content and not media:
+                return jsonify({"error": "A story needs text or media"}), 400
+            media_url = None
+            thumb_url = None
+            media_type = None
+            if media:
+                err = validate_upload(media)
+                if err:
+                    return jsonify({"error": err}), 400
+                filename = secure_filename(f"story_{uuid.uuid4().hex}_{media.filename}")
+                path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                media.save(path)
+                media_url = f"/static/uploads/{filename}"
+                media_type = media_type = media_type = media_type or media_type_for(media.filename, media.mimetype)
+            if thumbnail:
+                err = validate_upload(thumbnail)
+                if err:
+                    return jsonify({"error": err}), 400
+                tname = secure_filename(f"story_thumb_{uuid.uuid4().hex}_{thumbnail.filename}")
+                tpath = os.path.join(app.config['UPLOAD_FOLDER'], tname)
+                thumbnail.save(tpath)
+                thumb_url = f"/static/uploads/{tname}"
+            story = Story(user_id=current_user_id, content=content or None, media_url=media_url, thumbnail_url=thumb_url, media_type=media_type or ('image' if media_url else 'text'))
+            db.session.add(story)
+            db.session.commit()
+            return jsonify({"id": story.id, "expires_at": story.expires_at.isoformat(), "media_url": public_media_url(story.media_url), "thumbnail_url": public_media_url(story.thumbnail_url)}), 201
+        else:
+            payload = request.get_json(silent=True) or {}
+            content = (payload.get('content') or '').strip()
+            media_url = payload.get('media_url')
+            media_type = payload.get('media_type') or ('image' if media_url else 'text')
+            if not content and not media_url:
+                return jsonify({"error": "A story needs text or media"}), 400
+            story = Story(user_id=current_user_id, content=content or None, media_url=media_url, media_type=media_type)
+            db.session.add(story)
+            db.session.commit()
+            return jsonify({"id": story.id, "expires_at": story.expires_at.isoformat()}), 201
     results = Story.query.filter(Story.expires_at > datetime.utcnow()).order_by(Story.created_at.desc()).limit(50).all()
     return jsonify([{
         "id": story.id, "user_id": story.user_id, "name": story.user.name,

@@ -18,4 +18,8 @@ class FeedRepository {
     return (result['data'] as Map<String, dynamic>)['bookmarked'] as bool;
   }
   Future<void> deletePost(int id) => _api.delete('/api/posts/$id');
+  Future<Post> updatePost(int id, String content) async {
+    final result = await _api.put('/api/posts/$id', data: {'content': content});
+    return Post.fromJson(result['data'] as Map<String, dynamic>);
+  }
 }
