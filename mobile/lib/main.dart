@@ -5,6 +5,7 @@ import 'core/theme/app_theme.dart';
 import 'features/authentication/presentation/login_screen.dart';
 import 'features/authentication/presentation/register_screen.dart';
 import 'features/authentication/presentation/splash_screen.dart';
+import 'features/bookmarks/presentation/bookmarks_screen.dart';
 import 'features/explore/presentation/explore_screen.dart';
 import 'features/friends/presentation/friends_screen.dart';
 import 'features/messages/presentation/messages_screen.dart';
@@ -29,6 +30,7 @@ final _router = GoRouter(
     GoRoute(path: '/messages', builder: (_, _) => const MessagesScreen()),
     GoRoute(path: '/messages/:userId', builder: (_, state) => ChatScreen(userId: int.parse(state.pathParameters['userId']!), name: state.extra as String? ?? 'Conversation')),
     GoRoute(path: '/notifications', builder: (_, _) => const NotificationsScreen()),
+    GoRoute(path: '/bookmarks', builder: (_, _) => const BookmarksScreen()),
     GoRoute(path: '/profile', builder: (_, _) => const ProfileScreen()),
     GoRoute(path: '/profile/edit', builder: (_, _) => const EditProfileScreen()),
     GoRoute(path: '/profile/:userId', builder: (_, state) => ProfileScreen(userId: int.tryParse(state.pathParameters['userId'] ?? ''))),

@@ -7,8 +7,8 @@ class ApiClient {
   ApiClient(this._tokens)
       : dio = Dio(BaseOptions(
           baseUrl: AppConfig.apiBaseUrl,
-          connectTimeout: const Duration(seconds: 15),
-          receiveTimeout: const Duration(seconds: 30),
+          connectTimeout: const Duration(seconds: 30),
+          receiveTimeout: const Duration(seconds: 60),
           headers: const {'Accept': 'application/json', 'X-Mobile-Client': 'flutter'},
         )) {
     dio.interceptors.add(InterceptorsWrapper(

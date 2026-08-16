@@ -4,12 +4,13 @@ import '../models/post.dart';
 import 'post_media.dart';
 
 class PostCard extends StatelessWidget {
-  const PostCard({super.key, required this.post, required this.onLike, required this.onDelete, required this.onComments, this.onEdit, this.onUserTap});
+  const PostCard({super.key, required this.post, required this.onLike, required this.onDelete, required this.onComments, required this.onBookmark, this.onEdit, this.onUserTap});
 
   final Post post;
   final VoidCallback onLike;
   final Future<void> Function() onDelete;
   final VoidCallback onComments;
+  final VoidCallback onBookmark;
   final VoidCallback? onEdit;
   final VoidCallback? onUserTap;
 
@@ -90,7 +91,18 @@ class PostCard extends StatelessWidget {
                 Text('${post.likes}'),
                 const Spacer(),
                 IconButton(onPressed: onComments, icon: const Icon(Icons.mode_comment_outlined), tooltip: 'Comment'),
-                IconButton(onPressed: () {}, icon: Icon(post.bookmarked ? Icons.bookmark : Icons.bookmark_border), tooltip: 'Bookmark'),
+                IconButton(
+                  onPressed: onBookmark,
+                  icon: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 180),
+                    child: Icon(
+                      post.bookmarked ? Icons.bookmark : Icons.bookmark_border,
+                      key: ValueKey(post.bookmarked),
+                      color: post.bookmarked ? Colors.red : null,
+                    ),
+                  ),
+                  tooltip: post.bookmarked ? 'Remove bookmark' : 'Bookmark',
+                ),
               ],
             ),
           ],
@@ -99,5 +111,8 @@ class PostCard extends StatelessWidget {
     );
   }
 
-  String _date(DateTime value) => '${value.day}/${value.month}/${value.year}';
+  String _date(DateTime value) {
+    final local = value.toLocal();
+    return '${local.day}/${local.month}/${local.year}';
+  }
 }

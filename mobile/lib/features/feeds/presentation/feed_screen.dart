@@ -1,4 +1,5 @@
 import 'dart:ui';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -10,11 +11,39 @@ import 'feed_controller.dart';
 import 'comments_sheet.dart';
 import '../../search/presentation/search_screen.dart';
 
-class FeedScreen extends ConsumerWidget {
+class FeedScreen extends ConsumerStatefulWidget {
   const FeedScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<FeedScreen> createState() => _FeedScreenState();
+}
+
+class _FeedScreenState extends ConsumerState<FeedScreen> {
+  List<Map<String, dynamic>> _stories = const [];
+  bool _storiesLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStories();
+  }
+
+  Future<void> _loadStories() async {
+    try {
+      final result = await ref.read(apiProvider).get('/api/stories');
+      final items = result is List ? result : (result['data'] is List ? result['data'] : const <dynamic>[]);
+      if (mounted) {
+        setState(() => _stories = (items as List<dynamic>).cast<Map<String, dynamic>>());
+      }
+    } catch (_) {
+      if (mounted) setState(() => _stories = const []);
+    } finally {
+      if (mounted) setState(() => _storiesLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final feed = ref.watch(feedProvider);
     void openMenu() {
       showModalBottomSheet(
@@ -36,7 +65,7 @@ class FeedScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Row(children: [Image.asset('assets/Designer.png', width: 30, height: 30), const SizedBox(width: 8), const Text('Mbogi Link')]),
+        title: Image.asset('assets/Designer.png', width: 30, height: 30),
         actions: [
           IconButton(
             onPressed: () => ref.read(themeModeProvider.notifier).toggle(Theme.of(context).brightness),
@@ -45,9 +74,7 @@ class FeedScreen extends ConsumerWidget {
           ),
           IconButton(onPressed: () => showModalBottomSheet(context: context, isScrollControlled: true, builder: (_) => const SearchScreen()), icon: const Icon(Icons.search), tooltip: 'Search'),
           IconButton(onPressed: () => context.push('/posts/create'), icon: const Icon(Icons.add_circle_outline), tooltip: 'Create post'),
-          // Use shared top menu
           const SizedBox(width: 4),
-          // Imported locally to avoid changing many files' imports
           IconButton(icon: const Icon(Icons.menu), onPressed: openMenu),
         ],
         bottom: PreferredSize(
@@ -60,34 +87,61 @@ class FeedScreen extends ConsumerWidget {
         error: (_, _) => AppAsync(message: 'Unable to load posts.', onRetry: () => ref.read(feedProvider.notifier).refresh()),
         data: (posts) {
           return RefreshIndicator(
-            onRefresh: () => ref.read(feedProvider.notifier).refresh(),
-            child: posts.isEmpty
-                ? ListView(
+            onRefresh: () async {
+              await ref.read(feedProvider.notifier).refresh();
+              await _loadStories();
+            },
+            child: ListView(
+              padding: const EdgeInsets.only(bottom: 12),
+              children: [
+                if (!_storiesLoading || _stories.isNotEmpty)
+                  SizedBox(
+                    height: 112,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                      itemCount: _stories.isEmpty ? 1 : _stories.length,
+                      separatorBuilder: (_, _) => const SizedBox(width: 12),
+                      itemBuilder: (context, index) {
+                        if (_stories.isEmpty) {
+                          return _EmptyStoryTile(onTap: () => context.push('/explore'));
+                        }
+                        final story = _stories[index];
+                        final photo = story['picture'] as String? ?? story['user_photo'] as String?;
+                        return _StoryTile(
+                          name: story['name'] as String? ?? 'Story',
+                          photo: photo,
+                          onTap: () => _showStory(story),
+                        );
+                      },
+                    ),
+                  ),
+                if (posts.isEmpty)
+                  Padding(
                     padding: const EdgeInsets.all(24),
-                    children: [
-                      const SizedBox(height: 80),
-                      Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Column(
-                            children: [
-                              Icon(Icons.auto_awesome_outlined, size: 44, color: Theme.of(context).colorScheme.primary),
-                              const SizedBox(height: 12),
-                              Text('Your feed is ready', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
-                              const SizedBox(height: 8),
-                              Text('Follow more people and the latest posts will appear here.', textAlign: TextAlign.center, style: Theme.of(context).textTheme.bodyMedium),
-                            ],
-                          ),
+                    child: Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          children: [
+                            Icon(Icons.auto_awesome_outlined, size: 44, color: Theme.of(context).colorScheme.primary),
+                            const SizedBox(height: 12),
+                            Text('Your feed is ready', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                            const SizedBox(height: 8),
+                            Text('You have no friends yet, so start by exploring posts and people to connect with.', textAlign: TextAlign.center, style: Theme.of(context).textTheme.bodyMedium),
+                            const SizedBox(height: 16),
+                            FilledButton.icon(onPressed: () => context.push('/explore'), icon: const Icon(Icons.explore_outlined), label: const Text('Explore community')),
+                          ],
                         ),
                       ),
-                    ],
+                    ),
                   )
-                : ListView.builder(
-                    padding: const EdgeInsets.all(12),
-                    itemCount: posts.length,
-                    itemBuilder: (context, index) {
-                      final post = posts[index];
-                      return AnimatedSize(
+                else ...[
+                  const SizedBox(height: 8),
+                  for (final post in posts)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      child: AnimatedSize(
                         duration: const Duration(milliseconds: 220),
                         child: PostCard(
                           post: post,
@@ -102,12 +156,48 @@ class FeedScreen extends ConsumerWidget {
                           onDelete: () => _confirmDelete(context, ref, post),
                           onEdit: () => _editPost(context, ref, post),
                           onComments: () => showModalBottomSheet(context: context, isScrollControlled: true, showDragHandle: false, builder: (_) => CommentsSheet(postId: post.id)),
+                          onBookmark: () async {
+                            try {
+                              await ref.read(feedProvider.notifier).toggleBookmark(post);
+                            } catch (_) {
+                              if (context.mounted) _notice(context, 'Unable to update your bookmark.');
+                            }
+                          },
                         ),
-                      );
-                    },
-                  ),
+                      ),
+                    ),
+                ],
+              ],
+            ),
           );
         },
+      ),
+    );
+  }
+
+  void _showStory(Map<String, dynamic> story) {
+    final content = story['content'] as String?;
+    final mediaUrl = story['media_url'] as String?;
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(story['name'] as String? ?? 'Story'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (mediaUrl != null && mediaUrl.isNotEmpty)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: CachedNetworkImage(imageUrl: mediaUrl, fit: BoxFit.cover),
+                ),
+              const SizedBox(height: 12),
+              if ((content ?? '').isNotEmpty) Text(content!),
+            ],
+          ),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Close'))],
       ),
     );
   }
@@ -173,5 +263,56 @@ class FeedScreen extends ConsumerWidget {
 
   void _notice(BuildContext context, String message) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+}
+
+class _StoryTile extends StatelessWidget {
+  const _StoryTile({required this.name, required this.photo, required this.onTap});
+  final String name;
+  final String? photo;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final initials = name.trim().isNotEmpty ? name.trim().substring(0, 1).toUpperCase() : 'S';
+    return GestureDetector(
+      onTap: onTap,
+      child: SizedBox(
+        width: 78,
+        child: Column(
+          children: [
+            CircleAvatar(
+              radius: 32,
+              backgroundImage: photo == null ? null : CachedNetworkImageProvider(photo!),
+              child: photo == null ? Text(initials) : null,
+            ),
+            const SizedBox(height: 6),
+            Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: Theme.of(context).textTheme.labelSmall),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyStoryTile extends StatelessWidget {
+  const _EmptyStoryTile({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: SizedBox(
+        width: 78,
+        child: Column(
+          children: [
+            CircleAvatar(radius: 32, child: const Icon(Icons.explore_outlined)),
+            const SizedBox(height: 6),
+            Text('Explore', textAlign: TextAlign.center, style: Theme.of(context).textTheme.labelSmall),
+          ],
+        ),
+      ),
+    );
   }
 }

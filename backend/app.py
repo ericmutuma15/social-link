@@ -324,6 +324,10 @@ def ensure_required_columns():
             required_columns = {
                 "posts": {"thumbnail_url": "VARCHAR(300)"},
                 "stories": {"thumbnail_url": "VARCHAR(300)"},
+                "comments": {
+                    "attachment_url": "VARCHAR(300)",
+                    "attachment_name": "VARCHAR(255)",
+                },
             }
             for table_name, columns in required_columns.items():
                 if not inspector.has_table(table_name):
@@ -1777,9 +1781,9 @@ def like_post(post_id):
         db.session.commit()
         result = {"post_id": post_id, "likes": post.like_count(), "liked": True}
         if post.user_id != user_id:
-            db.session.add(Notification(user_id=post.user_id, message=f"{user.name} liked your post", type="like"))
+            db.session.add(Notification(user_id=post.user_id, message=f"{user.name} liked your post", type="like", post_id=post.id))
             db.session.commit()
-            socketio.emit("notification", {"type": "like"}, room=f"user_{post.user_id}")
+            socketio.emit("notification", {"type": "like", "post_id": post.id}, room=f"user_{post.user_id}")
         socketio.emit("post_liked", result)
         return api_response(data=result, message="Post liked", status=201)
     
@@ -1891,9 +1895,9 @@ def add_comment(post_id):
         db.session.commit()
         result = serialize_comment(new_comment, user_id)
         if post.user_id != user_id:
-            db.session.add(Notification(user_id=post.user_id, message=f"{new_comment.user.name} commented on your post", type="comment"))
+            db.session.add(Notification(user_id=post.user_id, message=f"{new_comment.user.name} commented on your post", type="comment", post_id=post.id))
             db.session.commit()
-            socketio.emit("notification", {"type": "comment"}, room=f"user_{post.user_id}")
+            socketio.emit("notification", {"type": "comment", "post_id": post.id}, room=f"user_{post.user_id}")
         socketio.emit("post_commented", {"post_id": post_id, "comment": result})
         return api_response(data=result, message="Comment added", status=201)
 
@@ -2185,6 +2189,7 @@ def get_notifications():
             Notification.message,
             Notification.type,
             Notification.friend_request_id,
+            Notification.post_id,
             Notification.read,
             Notification.archived,
             Notification.created_at,
@@ -2234,6 +2239,7 @@ def get_notifications():
             "message": notif.message,
             "type": notif.type,
             "friend_request_id": notif.friend_request_id,
+            "post_id": notif.post_id,
             "friend_request_status": notif.friend_request_status or "unknown",
             "originator_name": notif.originator_name or "Unknown User",
             "originator_profile_pic": (
@@ -2350,7 +2356,7 @@ def accept_friend_request():
     # Notify the requester that the friend request was accepted
     new_notification = Notification(
         user_id=friend_request.requester_id,  # Notify the requester
-        message=f"{recipient_user.name} accepted your friend request!",
+        message=f"You and {recipient_user.name} are now friends!",
         type="friend_accept",
         friend_request_id=friend_request.id  # Associate the notification with the request
     )
@@ -2802,19 +2808,16 @@ def delete_message(message_id):
 def get_chats():
     try:
         current_user_id = get_jwt_identity()
-        
-        # Ensure current_user_id is an integer
+
         try:
             current_user_id = int(current_user_id)
         except (ValueError, TypeError):
             return api_response(message="Invalid authentication token", status=401)
-        
-        # Query all messages where current user is either sender or receiver
+
         messages = Message.query.filter(
             (Message.sender_id == current_user_id) | (Message.receiver_id == current_user_id)
         ).order_by(Message.timestamp.desc()).all()
 
-        # Collect unique partner IDs
         partner_ids = set()
         for msg in messages:
             if msg.sender_id != current_user_id:
@@ -2822,31 +2825,51 @@ def get_chats():
             if msg.receiver_id != current_user_id:
                 partner_ids.add(msg.receiver_id)
 
-        # Build the chat list with user details
         chats = []
         for pid in partner_ids:
             user = User.query.get(pid)
-            if user and not user.deleted_at:  # Exclude deleted users
-                picture_url = (
-                    url_for("serve_image", filename=user.picture, _external=True)
-                    if user.picture else None
-                )
-                latest = next((message for message in messages if message.sender_id == pid or message.receiver_id == pid), None)
-                unread_count = sum(1 for message in messages if message.sender_id == pid and message.receiver_id == current_user_id and not message.is_read)
-                chats.append({
-                    "id": user.id,
-                    "name": user.name,
-                    "profile_pic": picture_url or "/default-profile.png",
-                    "last_message": latest.message[:50] if latest and latest.message else (f"[{latest.media_type}]" if latest and latest.media_type else "Start a conversation"),
-                    "last_message_at": latest.timestamp.isoformat() if latest else None,
-                    "unread_count": unread_count,
-                    "is_online": user.last_active and (datetime.utcnow() - user.last_active).total_seconds() < 300  # Online if active within 5 minutes
-                })
-        
-        # Sort by most recent conversation
+            if not user or user.deleted_at:
+                continue
+
+            partner_messages = [
+                message for message in messages
+                if ((message.sender_id == current_user_id and message.receiver_id == pid) or
+                    (message.sender_id == pid and message.receiver_id == current_user_id))
+                and not ((message.sender_id == current_user_id and message.deleted_by_sender) or
+                         (message.receiver_id == current_user_id and message.deleted_by_receiver))
+            ]
+
+            latest = max(partner_messages, key=lambda message: message.timestamp, default=None)
+            unread_count = sum(
+                1 for message in partner_messages
+                if message.sender_id == pid and message.receiver_id == current_user_id and not message.is_read
+            )
+
+            last_message = "Start a conversation"
+            if latest:
+                if latest.message and latest.message.strip():
+                    last_message = latest.message.strip()[:50]
+                elif latest.media_type:
+                    last_message = f"[{latest.media_type}]"
+
+            picture_url = (
+                url_for("serve_image", filename=user.picture, _external=True)
+                if user.picture else None
+            )
+
+            chats.append({
+                "id": user.id,
+                "name": user.name,
+                "profile_pic": picture_url or "/default-profile.png",
+                "last_message": last_message,
+                "last_message_at": latest.timestamp.isoformat() if latest else None,
+                "unread_count": unread_count,
+                "is_online": bool(user.last_active and (datetime.utcnow() - user.last_active).total_seconds() < 300)
+            })
+
         chats.sort(key=lambda chat: chat["last_message_at"] or "", reverse=True)
         return jsonify(chats), 200
-    
+
     except Exception as e:
         app.logger.error(f"Error fetching chats: {str(e)}")
         return api_response(message="Failed to fetch conversations", status=500)

@@ -253,12 +253,14 @@ class Notification(db.Model):
     type = db.Column(db.String(50), nullable=False)
     # friend_request_id can be null for notifications that are not friend-request related
     friend_request_id = db.Column(db.Integer, db.ForeignKey('friend_requests.id'), nullable=True)
+    post_id = db.Column(db.Integer, db.ForeignKey('posts.id'), nullable=True)
     read = db.Column(db.Boolean, default=False)  # New field to track read status
     archived = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     # Relationships (optional, but useful)
     friend_request = db.relationship("FriendRequest", backref="notifications")
+    post = db.relationship("Post", backref="notifications")
 
 
 

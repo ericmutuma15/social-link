@@ -1,7 +1,8 @@
 import 'dart:async';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
+import '../../../shared/utils/profile_image.dart';
 import '../../explore/presentation/explore_screen.dart';
 import '../../feeds/presentation/feed_screen.dart';
 import '../../messages/presentation/messages_screen.dart';
@@ -18,14 +19,14 @@ class AppShell extends ConsumerStatefulWidget {
 
 class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver {
   var _index = 0;
-  var _messageUnread = 0;
-  var _notificationUnread = 0;
+  String? _profilePhoto;
   Timer? _badgeTimer;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _loadCurrentUser();
     _refreshBadges();
     _badgeTimer = Timer.periodic(const Duration(seconds: 30), (_) => _refreshBadges());
   }
@@ -44,16 +45,27 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
     }
   }
 
+  Future<void> _loadCurrentUser() async {
+    try {
+      final user = await ref.read(apiProvider).get('/api/current_user');
+      final photo = user['avatar'] as String? ?? user['picture'] as String?;
+      if (mounted) setState(() => _profilePhoto = resolveProfileImageUrl(photo));
+    } catch (_) {
+      if (mounted) setState(() => _profilePhoto = null);
+    }
+  }
+
   Future<void> _refreshBadges() async {
     try {
       final api = ref.read(apiProvider);
       final messages = await api.get('/api/messages/unread-count');
       final notifications = await api.get('/api/notifications/unread-count');
       if (!mounted) return;
-      setState(() {
-        _messageUnread = _readCount(messages);
-        _notificationUnread = _readCount(notifications);
-      });
+      final messageCount = _readCount(messages);
+      final notificationCount = _readCount(notifications);
+      ref.read(messageUnreadProvider.notifier).state = messageCount;
+      ref.read(notificationUnreadProvider.notifier).state = notificationCount;
+      setState(() {});
     } catch (_) {
       // A badge must never prevent the shell from being usable offline.
     }
@@ -73,37 +85,29 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
       const MessagesScreen(),
       const NotificationsScreen(),
       const ProfileScreen(),
-      // Story camera route placeholder
-      // When selected, we'll push the camera route instead of embedding it.
     ];
+    final messageUnread = ref.watch(messageUnreadProvider);
+    final notificationUnread = ref.watch(notificationUnreadProvider);
+    final profileIcon = _profilePhoto == null || _profilePhoto!.isEmpty
+        ? const CircleAvatar(radius: 12, child: Icon(Icons.person, size: 14))
+        : CircleAvatar(radius: 12, backgroundImage: CachedNetworkImageProvider(_profilePhoto!));
 
     return Scaffold(
       body: IndexedStack(index: _index, children: pages),
       bottomNavigationBar: NavigationBar(
-        selectedIndex: _index < 2 ? _index : _index + 1,
+        selectedIndex: _index,
         onDestinationSelected: (value) {
-          if (value == 2) {
-            context.push('/posts/create');
-            return;
-          }
-          // The last destination opens the story camera instead of a page
-          if (value == 6) {
-            context.push('/stories/camera');
-            return;
-          }
-          setState(() => _index = value > 2 ? value - 1 : value);
+          if (value < 0 || value >= pages.length) return;
+          setState(() => _index = value);
           _refreshBadges();
         },
         labelBehavior: NavigationDestinationLabelBehavior.onlyShowSelected,
         destinations: [
           NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Home'),
           NavigationDestination(icon: Icon(Icons.explore_outlined), selectedIcon: Icon(Icons.explore), label: 'Explore'),
-          const NavigationDestination(icon: Icon(Icons.add_circle_outline), selectedIcon: Icon(Icons.add_circle), label: 'Create'),
-          NavigationDestination(icon: _BadgeIcon(icon: Icons.chat_bubble_outline, count: _messageUnread), selectedIcon: _BadgeIcon(icon: Icons.chat_bubble, count: _messageUnread), label: 'Messages'),
-          NavigationDestination(icon: _BadgeIcon(icon: Icons.notifications_outlined, count: _notificationUnread), selectedIcon: _BadgeIcon(icon: Icons.notifications, count: _notificationUnread), label: 'Alerts'),
-          NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'Profile'),
-          // Quick access to story camera for prototyping
-          NavigationDestination(icon: Icon(Icons.camera_alt_outlined), selectedIcon: Icon(Icons.camera_alt), label: 'Story'),
+          NavigationDestination(icon: _BadgeIcon(icon: Icons.chat_bubble_outline, count: messageUnread), selectedIcon: _BadgeIcon(icon: Icons.chat_bubble, count: messageUnread), label: 'Messages'),
+          NavigationDestination(icon: _BadgeIcon(icon: Icons.notifications_outlined, count: notificationUnread), selectedIcon: _BadgeIcon(icon: Icons.notifications, count: notificationUnread), label: 'Alerts'),
+          NavigationDestination(icon: profileIcon, selectedIcon: profileIcon, label: 'Profile'),
         ],
       ),
     );

@@ -285,7 +285,8 @@ class _CommentsSheetState extends ConsumerState<CommentsSheet> {
   String _time(String? value) {
     final date = DateTime.tryParse(value ?? '');
     if (date == null) return 'Now';
-    final diff = DateTime.now().difference(date);
+    final local = date.toLocal();
+    final diff = DateTime.now().toLocal().difference(local);
     return diff.inMinutes < 1 ? 'Now' : diff.inHours < 1 ? '${diff.inMinutes}m' : diff.inDays < 1 ? '${diff.inHours}h' : '${diff.inDays}d';
   }
 }

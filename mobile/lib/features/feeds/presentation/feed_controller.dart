@@ -9,6 +9,8 @@ final tokenStorageProvider = Provider((_) => TokenStorage(const FlutterSecureSto
 final apiProvider = Provider((ref) => ApiClient(ref.watch(tokenStorageProvider)));
 final feedRepositoryProvider = Provider((ref) => FeedRepository(ref.watch(apiProvider)));
 final feedProvider = AsyncNotifierProvider<FeedController, List<Post>>(FeedController.new);
+final notificationUnreadProvider = StateProvider<int>((_) => 0);
+final messageUnreadProvider = StateProvider<int>((_) => 0);
 
 class FeedController extends AsyncNotifier<List<Post>> {
   var _page = 1;
@@ -30,6 +32,21 @@ class FeedController extends AsyncNotifier<List<Post>> {
     final optimistic = post.copyWith(liked: !post.liked, likes: post.likes + (post.liked ? -1 : 1));
     state = AsyncData([for (final item in before) if (item.id == post.id) optimistic else item]);
     try { final result = await _repository.like(post.id); state = AsyncData([for (final item in state.valueOrNull ?? before) if (item.id == post.id) item.copyWith(liked: result.liked, likes: result.likes) else item]); } catch (_) { state = AsyncData(before); rethrow; }
+  }
+  Future<void> toggleBookmark(Post post) async {
+    final before = state.valueOrNull ?? const [];
+    final optimistic = post.copyWith(bookmarked: !post.bookmarked);
+    state = AsyncData([for (final item in before) if (item.id == post.id) optimistic else item]);
+    try {
+      final bookmarked = await _repository.bookmark(post.id);
+      state = AsyncData([
+        for (final item in state.valueOrNull ?? before)
+          if (item.id == post.id) item.copyWith(bookmarked: bookmarked) else item,
+      ]);
+    } catch (_) {
+      state = AsyncData(before);
+      rethrow;
+    }
   }
   Future<void> delete(Post post) async { final before = state.valueOrNull ?? const []; state = AsyncData(before.where((item) => item.id != post.id).toList()); try { await _repository.deletePost(post.id); } catch (_) { state = AsyncData(before); rethrow; } }
   Future<void> updatePost(Post post, String content) async {

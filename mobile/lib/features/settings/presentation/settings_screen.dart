@@ -132,13 +132,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             trailing: IconButton(
                               icon: const Icon(Icons.block_outlined),
                               onPressed: () async {
+                                final messenger = ScaffoldMessenger.maybeOf(context);
                                 try {
                                   await ref.read(apiProvider).delete('/api/blocks/${user['id']}');
                                   if (!mounted) return;
                                   await _load();
                                 } catch (_) {
-                                  if (!mounted) return;
-                                  ScaffoldMessenger.of(context).showSnackBar(
+                                  if (!mounted || messenger == null) return;
+                                  messenger.showSnackBar(
                                     const SnackBar(content: Text('Unable to unblock this user.')),
                                   );
                                 }
@@ -163,13 +164,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     final result = await ref.read(apiProvider).get('/api/about');
                     final data = result['data'] as Map<String, dynamic>? ?? const {};
                     if (!mounted) return;
-                    final dialogContext = context;
+                    if (!context.mounted) return;
                     showDialog(
-                      context: dialogContext,
+                      context: context,
                       builder: (_) => AlertDialog(
                         title: const Text('About'),
                         content: Text(data['summary'] as String? ?? 'Mbogi Link'),
-                        actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close'))],
+                        actions: [TextButton(onPressed: () => Navigator.of(context, rootNavigator: true).pop(), child: const Text('Close'))],
                       ),
                     );
                   },
@@ -181,13 +182,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     final result = await ref.read(apiProvider).get('/api/legal');
                     final data = result['data'] as Map<String, dynamic>? ?? const {};
                     if (!mounted) return;
-                    final dialogContext = context;
+                    if (!context.mounted) return;
                     showDialog(
-                      context: dialogContext,
+                      context: context,
                       builder: (_) => AlertDialog(
                         title: const Text('Legal information'),
                         content: Text('${data['terms'] ?? 'Terms'}\n\n${data['privacy_notice'] ?? ''}'),
-                        actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close'))],
+                        actions: [TextButton(onPressed: () => Navigator.of(context, rootNavigator: true).pop(), child: const Text('Close'))],
                       ),
                     );
                   },

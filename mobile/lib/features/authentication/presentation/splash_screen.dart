@@ -52,7 +52,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const BrandLogo(size: 124, showLabel: true),
+              const BrandLogo(size: 124, showLabel: false),
               const SizedBox(height: 24),
               const CircularProgressIndicator(color: Colors.white),
             ],
