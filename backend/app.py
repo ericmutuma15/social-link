@@ -48,7 +48,7 @@ from werkzeug.security import generate_password_hash
 from werkzeug.utils import secure_filename
 
 from sqlalchemy.orm import joinedload, aliased
-from sqlalchemy import case, inspect
+from sqlalchemy import case, inspect, text
 from io import BytesIO
 from flask import send_file, Response
 
@@ -316,8 +316,31 @@ def create_or_get_oauth_user(email, name):
     return user
 
 
+def ensure_required_columns():
+    """Backfill missing additive columns on older deployments without crashing startup."""
+    try:
+        with app.app_context():
+            inspector = inspect(db.engine)
+            required_columns = {
+                "posts": {"thumbnail_url": "VARCHAR(300)"},
+                "stories": {"thumbnail_url": "VARCHAR(300)"},
+            }
+            for table_name, columns in required_columns.items():
+                if not inspector.has_table(table_name):
+                    continue
+                existing_columns = {col["name"] for col in inspector.get_columns(table_name)}
+                for column_name, column_type in columns.items():
+                    if column_name in existing_columns:
+                        continue
+                    db.session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"))
+            db.session.commit()
+    except Exception:
+        app.logger.exception("Failed to ensure required DB columns for the app schema")
+
+
 with app.app_context():
     db.create_all()
+    ensure_required_columns()
     try:
         ensure_default_user()
     except Exception as e:
