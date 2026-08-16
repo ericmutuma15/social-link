@@ -1563,6 +1563,7 @@ def create_post():
 
         content = (form_data.get('content') or '').strip()
         media_url = None
+        thumbnail_url = None
 
         uploads_folder = os.path.join(app.root_path, 'static/uploads')
         if not os.path.exists(uploads_folder):

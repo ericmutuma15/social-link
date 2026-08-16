@@ -77,6 +77,28 @@ def test_profile_update_without_name_preserves_existing_profile_fields():
             assert user.location == "Nairobi"
 
 
+def test_create_post_accepts_text_only_content():
+    app_module = importlib.import_module("app")
+
+    with app_module.app.app_context():
+        user = app_module.User.query.filter_by(email="admin@mbogi.dev").first()
+        assert user is not None
+        token = app_module.create_access_token(user.id)
+
+    with app_module.app.test_client() as client:
+        response = client.post(
+            "/api/posts",
+            data={"content": "Hello from the regression test"},
+            headers={"Authorization": f"Bearer {token}"},
+            content_type="multipart/form-data",
+        )
+
+        assert response.status_code == 201
+        payload = response.get_json()
+        assert payload["success"] is True
+        assert payload["data"]["content"] == "Hello from the regression test"
+
+
 def test_register_returns_verification_status(monkeypatch):
     app_module = importlib.import_module("app")
     monkeypatch.setitem(app_module.app.config, "REQUIRE_EMAIL_VERIFICATION", True)
