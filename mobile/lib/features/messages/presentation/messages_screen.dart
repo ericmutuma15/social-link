@@ -15,8 +15,17 @@ class MessagesScreen extends ConsumerStatefulWidget {
 class _MessagesScreenState extends ConsumerState<MessagesScreen> {
   List<Map<String, dynamic>> _chats = [];
   List<Map<String, dynamic>> _friends = [];
-  final Set<int> _pinned = <int>{};
+  final _search = TextEditingController();
+  String _query = '';
+  String _filter = 'All';
   bool _loading = true;
+  bool _refreshing = false;
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -25,6 +34,8 @@ class _MessagesScreenState extends ConsumerState<MessagesScreen> {
   }
 
   Future<void> _load() async {
+    if (_refreshing) return;
+    _refreshing = true;
     try {
       final result = await ref.read(apiProvider).get('/api/chats');
       final raw = result['data'] is List
@@ -33,8 +44,10 @@ class _MessagesScreenState extends ConsumerState<MessagesScreen> {
       final list = (raw as List?) ?? const [];
       if (mounted) setState(() => _chats = list.cast<Map<String, dynamic>>());
     } catch (_) {
-      if (mounted) setState(() => _chats = const []);
+      if (mounted && _chats.isEmpty) setState(() => _chats = const []);
+      if (mounted && _chats.isNotEmpty) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Couldn't refresh messages. Check your connection and try again.")));
     } finally {
+      _refreshing = false;
       if (mounted) setState(() => _loading = false);
     }
   }
@@ -112,7 +125,7 @@ class _MessagesScreenState extends ConsumerState<MessagesScreen> {
   void _showConversationActions(Map<String, dynamic> chat) {
     final id = chat['id'];
     final idValue = int.tryParse(id.toString()) ?? -1;
-    final pinned = _pinned.contains(idValue);
+    final pinned = chat['pinned'] == true;
     showModalBottomSheet(
       context: context,
       builder: (sheetContext) => SafeArea(
@@ -124,32 +137,20 @@ class _MessagesScreenState extends ConsumerState<MessagesScreen> {
               ListTile(
                 leading: const Icon(Icons.push_pin_outlined),
                 title: Text(pinned ? 'Unpin conversation' : 'Pin to top'),
-                onTap: () {
+                onTap: () async {
                   Navigator.pop(sheetContext);
-                  setState(() {
-                    final idValue = int.tryParse(id?.toString() ?? '') ?? -1;
-                    if (pinned) {
-                      _pinned.remove(idValue);
-                    } else {
-                      _pinned.add(idValue);
-                    }
-                    _chats.sort((a, b) {
-                      final aId = int.tryParse(a['id'].toString()) ?? -1;
-                      final bId = int.tryParse(b['id'].toString()) ?? -1;
-                      final aP = _pinned.contains(aId) ? 1 : 0;
-                      final bP = _pinned.contains(bId) ? 1 : 0;
-                      if (aP != bP) return bP.compareTo(aP);
-                      return (b['last_message_at'] as String? ?? '').compareTo(a['last_message_at'] as String? ?? '');
-                    });
-                  });
+                  try { await ref.read(apiProvider).patch('/api/chats/$idValue', data: {'pinned': !pinned}); await _load(); } catch (_) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Unable to update this conversation.'))); }
                 },
               ),
+              ListTile(leading: const Icon(Icons.star_outline), title: Text(chat['favourite'] == true ? 'Remove favourite' : 'Add favourite'), onTap: () async { Navigator.pop(sheetContext); try { await ref.read(apiProvider).patch('/api/chats/$idValue', data: {'favourite': chat['favourite'] != true}); await _load(); } catch (_) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Unable to update this conversation.'))); } }),
               ListTile(
                 leading: const Icon(Icons.delete_outline),
                 title: const Text('Delete conversation'),
-                onTap: () {
+                onTap: () async {
                   Navigator.pop(sheetContext);
-                  setState(() => _chats.removeWhere((item) => item['id'] == chat['id']));
+                  final confirmed = await showDialog<bool>(context: context, builder: (context) => AlertDialog(title: const Text('Delete conversation?'), content: const Text('Your conversation history will be removed from your messages list.'), actions: [TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete'))]));
+                  if (confirmed != true) return;
+                  try { await ref.read(apiProvider).delete('/api/chats/$idValue'); if (mounted) setState(() => _chats.removeWhere((item) => item['id'] == chat['id'])); } catch (_) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Unable to delete this conversation.'))); }
                 },
               ),
             ],
@@ -161,19 +162,17 @@ class _MessagesScreenState extends ConsumerState<MessagesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final orderedChats = [..._chats]..sort((a, b) {
-      final aId = int.tryParse(a['id'].toString()) ?? -1;
-      final bId = int.tryParse(b['id'].toString()) ?? -1;
-      final aPinned = _pinned.contains(aId) ? 1 : 0;
-      final bPinned = _pinned.contains(bId) ? 1 : 0;
-      if (aPinned != bPinned) return bPinned.compareTo(aPinned);
-      return (b['last_message_at'] as String? ?? '').compareTo(a['last_message_at'] as String? ?? '');
-    });
+    final orderedChats = _chats.where((chat) {
+      final matchesQuery = _query.isEmpty || '${chat['name']} ${chat['last_message']}'.toLowerCase().contains(_query.toLowerCase());
+      final matchesFilter = _filter == 'All' || (_filter == 'Unread' && (chat['unread_count'] as int? ?? 0) > 0) || (_filter == 'Favourites' && chat['favourite'] == true);
+      return matchesQuery && matchesFilter;
+    }).toList();
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Messages'),
         actions: [
+          IconButton(onPressed: _load, icon: const Icon(Icons.refresh), tooltip: 'Refresh messages'),
           IconButton(onPressed: _toggleFriendsSheet, icon: const Icon(Icons.people_alt_outlined), tooltip: 'Friends list'),
           const TopMenuButton(),
         ],
@@ -182,14 +181,14 @@ class _MessagesScreenState extends ConsumerState<MessagesScreen> {
           ? const Center(child: CircularProgressIndicator())
           : orderedChats.isEmpty
               ? const Center(child: Text('No conversations yet. Start a conversation from your network.'))
-              : ListView.separated(
+              : RefreshIndicator(onRefresh: _load, child: ListView.separated(
                   padding: const EdgeInsets.all(16),
-                  itemCount: orderedChats.length,
+                  itemCount: orderedChats.length + 1,
                   separatorBuilder: (_, _) => const SizedBox(height: 12),
                   itemBuilder: (context, index) {
-                    final chat = orderedChats[index];
-                    final id = chat['id'];
-                    final pinned = _pinned.contains(int.tryParse(id.toString()) ?? -1);
+                    if (index == 0) return Column(children: [TextField(controller: _search, onChanged: (value) => setState(() => _query = value), decoration: InputDecoration(prefixIcon: const Icon(Icons.search), suffixIcon: _query.isEmpty ? null : IconButton(onPressed: () { _search.clear(); setState(() => _query = ''); }, icon: const Icon(Icons.clear)), hintText: 'Search conversations')), const SizedBox(height: 10), SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: [for (final filter in ['All', 'Unread', 'Favourites']) Padding(padding: const EdgeInsets.only(right: 8), child: FilterChip(label: Text(filter), selected: _filter == filter, onSelected: (_) => setState(() => _filter = filter)))]))]);
+                    final chat = orderedChats[index - 1];
+                    final pinned = chat['pinned'] == true;
                     return Card(
                       child: ListTile(
                         leading: GestureDetector(
@@ -200,6 +199,7 @@ class _MessagesScreenState extends ConsumerState<MessagesScreen> {
                           children: [
                             Expanded(child: Text(chat['name'] as String? ?? 'Conversation')),
                             if (pinned) const Icon(Icons.push_pin, size: 16),
+                            if (chat['favourite'] == true) const Icon(Icons.star, size: 16),
                           ],
                         ),
                         subtitle: Text(chat['last_message'] as String? ?? 'Start a conversation'),
@@ -209,7 +209,7 @@ class _MessagesScreenState extends ConsumerState<MessagesScreen> {
                       ),
                     );
                   },
-                ),
+                )),
     );
   }
 }

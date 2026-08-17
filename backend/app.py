@@ -210,6 +210,7 @@ from models import (
     db,
     User,
     Message,
+    ConversationPreference,
     FriendRequest,
     Friendship,
     Post,
@@ -220,6 +221,8 @@ from models import (
     Community,
     CommunityMember,
     Story,
+    StoryView,
+    StoryLike,
     TokenBlocklist,
     AuditLog,
     BlockedUser,
@@ -2479,14 +2482,44 @@ def friend_suggestions():
     return jsonify([_person_payload(user) for user in candidates[:8]]), 200
 
 
+def _active_visible_story(story_id, user_id):
+    """Return an active story only when the requester may see its owner."""
+    story = Story.query.filter(Story.id == story_id, Story.expires_at > datetime.utcnow()).first()
+    if not story:
+        return None
+    if story.user_id == user_id:
+        return story
+    blocked = BlockedUser.query.filter(
+        ((BlockedUser.user_id == user_id) & (BlockedUser.blocked_user_id == story.user_id)) |
+        ((BlockedUser.user_id == story.user_id) & (BlockedUser.blocked_user_id == user_id))
+    ).first()
+    if blocked:
+        return None
+    return story if Friendship.query.filter(
+        ((Friendship.user_id == user_id) & (Friendship.friend_id == story.user_id)) |
+        ((Friendship.user_id == story.user_id) & (Friendship.friend_id == user_id))
+    ).first() else None
+
+
+def _story_payload(story, user_id):
+    return {
+        'id': story.id, 'user_id': story.user_id, 'name': story.user.name,
+        'picture': profile_avatar_url(story.user), 'content': story.content,
+        'media_url': public_media_url(story.media_url),
+        'thumbnail_url': public_media_url(story.thumbnail_url),
+        'media_type': story.media_type, 'created_at': story.created_at.isoformat(),
+        'expires_at': story.expires_at.isoformat(), 'is_own': story.user_id == user_id,
+        'viewed': StoryView.query.filter_by(story_id=story.id, user_id=user_id).first() is not None,
+        'liked': StoryLike.query.filter_by(story_id=story.id, user_id=user_id).first() is not None,
+        'like_count': StoryLike.query.filter_by(story_id=story.id).count(),
+        'view_count': StoryView.query.filter_by(story_id=story.id).count() if story.user_id == user_id else None,
+    }
+
+
 @app.route('/api/stories', methods=['GET', 'POST'])
 @jwt_required()
 def stories():
-    current_user_id = get_jwt_identity()
-    # Expired stories are never returned. Cleanup is deliberately best-effort so
-    # a retention job can later own the same policy without changing this API.
-    Story.query.filter(Story.expires_at <= datetime.utcnow()).delete(synchronize_session=False)
-    db.session.commit()
+    current_user_id = int(get_jwt_identity())
     if request.method == 'POST':
         # Accept multipart/form-data uploads (media + optional thumbnail)
         if request.content_type and request.content_type.startswith('multipart/'):
@@ -2506,7 +2539,7 @@ def stories():
                 path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                 media.save(path)
                 media_url = f"/static/uploads/{filename}"
-                media_type = media_type = media_type = media_type or media_type_for(media.filename, media.mimetype)
+                media_type = media_type_for(media.filename, media.mimetype)
             if thumbnail:
                 err = validate_upload(thumbnail)
                 if err:
@@ -2518,26 +2551,114 @@ def stories():
             story = Story(user_id=current_user_id, content=content or None, media_url=media_url, thumbnail_url=thumb_url, media_type=media_type or ('image' if media_url else 'text'))
             db.session.add(story)
             db.session.commit()
-            return jsonify({"id": story.id, "expires_at": story.expires_at.isoformat(), "media_url": public_media_url(story.media_url), "thumbnail_url": public_media_url(story.thumbnail_url)}), 201
+            return jsonify(_story_payload(story, current_user_id)), 201
         else:
             payload = request.get_json(silent=True) or {}
             content = (payload.get('content') or '').strip()
             media_url = payload.get('media_url')
             media_type = payload.get('media_type') or ('image' if media_url else 'text')
+            if media_type not in {'image', 'video', 'text'}:
+                return api_response(message='Unsupported story type.', status=422)
+            if len(content) > 500:
+                return api_response(message='Text stories are limited to 500 characters.', status=422)
             if not content and not media_url:
                 return jsonify({"error": "A story needs text or media"}), 400
             story = Story(user_id=current_user_id, content=content or None, media_url=media_url, media_type=media_type)
             db.session.add(story)
             db.session.commit()
-            return jsonify({"id": story.id, "expires_at": story.expires_at.isoformat()}), 201
-    results = Story.query.filter(Story.expires_at > datetime.utcnow()).order_by(Story.created_at.desc()).limit(50).all()
-    return jsonify([{
-        "id": story.id, "user_id": story.user_id, "name": story.user.name,
-        "picture": url_for("serve_image", filename=story.user.picture, _external=True) if story.user.picture else None,
-        "content": story.content, "media_url": story.media_url, "media_type": story.media_type,
-        "created_at": story.created_at.isoformat(), "expires_at": story.expires_at.isoformat(),
-        "is_own": story.user_id == current_user_id,
-    } for story in results]), 200
+            return jsonify(_story_payload(story, current_user_id)), 201
+
+    blocked_ids = [row.blocked_user_id for row in BlockedUser.query.filter_by(user_id=current_user_id)]
+    blocked_ids += [row.user_id for row in BlockedUser.query.filter_by(blocked_user_id=current_user_id)]
+    friend_ids = [row.friend_id for row in Friendship.query.filter_by(user_id=current_user_id)]
+    friend_ids += [row.user_id for row in Friendship.query.filter_by(friend_id=current_user_id)]
+    results = Story.query.filter(
+        Story.expires_at > datetime.utcnow(),
+        Story.user_id.notin_(blocked_ids or [-1]),
+        Story.user_id.in_(list(set(friend_ids + [current_user_id])))
+    ).order_by(Story.created_at.asc()).limit(100).all()
+    return jsonify([_story_payload(story, current_user_id) for story in results]), 200
+
+
+@app.route('/api/stories/<int:story_id>', methods=['GET', 'DELETE'])
+@jwt_required()
+def story_detail(story_id):
+    user_id = int(get_jwt_identity())
+    story = _active_visible_story(story_id, user_id)
+    if not story:
+        return api_response(message='This story is no longer available.', status=404)
+    if request.method == 'DELETE':
+        if story.user_id != user_id:
+            return api_response(message='You can only delete your own stories.', status=403)
+        db.session.delete(story)
+        db.session.commit()
+        return api_response({'id': story_id}, 'Story deleted')
+    return api_response(_story_payload(story, user_id))
+
+
+@app.route('/api/stories/<int:story_id>/view', methods=['POST'])
+@jwt_required()
+def view_story(story_id):
+    user_id = int(get_jwt_identity())
+    story = _active_visible_story(story_id, user_id)
+    if not story:
+        return api_response(message='This story is no longer available.', status=404)
+    if story.user_id != user_id and not StoryView.query.filter_by(story_id=story.id, user_id=user_id).first():
+        db.session.add(StoryView(story_id=story.id, user_id=user_id))
+        db.session.commit()
+    return api_response({'id': story.id}, 'Story viewed')
+
+
+@app.route('/api/stories/<int:story_id>/viewers', methods=['GET'])
+@jwt_required()
+def story_viewers(story_id):
+    user_id = int(get_jwt_identity())
+    story = _active_visible_story(story_id, user_id)
+    if not story:
+        return api_response(message='This story is no longer available.', status=404)
+    if story.user_id != user_id:
+        return api_response(message='Only the story owner can see viewers.', status=403)
+    views = StoryView.query.filter_by(story_id=story.id).order_by(StoryView.viewed_at.desc()).all()
+    return api_response([{'user_id': item.user_id, 'name': item.user.name, 'avatar': profile_avatar_url(item.user), 'viewed_at': item.viewed_at.isoformat()} for item in views])
+
+
+@app.route('/api/stories/<int:story_id>/like', methods=['POST', 'DELETE'])
+@jwt_required()
+def like_story(story_id):
+    user_id = int(get_jwt_identity())
+    story = _active_visible_story(story_id, user_id)
+    if not story:
+        return api_response(message='This story is no longer available.', status=404)
+    like = StoryLike.query.filter_by(story_id=story.id, user_id=user_id).first()
+    if request.method == 'DELETE':
+        if like:
+            db.session.delete(like)
+            db.session.commit()
+    elif not like:
+        db.session.add(StoryLike(story_id=story.id, user_id=user_id))
+        if story.user_id != user_id:
+            db.session.add(Notification(user_id=story.user_id, message=f'{User.query.get(user_id).name} liked your story.', type='story_like', story_id=story.id))
+        db.session.commit()
+    return api_response(_story_payload(story, user_id))
+
+
+@app.route('/api/stories/<int:story_id>/reply', methods=['POST'])
+@jwt_required()
+def reply_to_story(story_id):
+    user_id = int(get_jwt_identity())
+    story = _active_visible_story(story_id, user_id)
+    content = ((request.get_json(silent=True) or {}).get('message') or '').strip()
+    if not story:
+        return api_response(message='This story is no longer available.', status=404)
+    if story.user_id == user_id:
+        return api_response(message='You cannot reply to your own story.', status=422)
+    if not content or len(content) > 2000:
+        return api_response(message='Replies must be between 1 and 2000 characters.', status=422)
+    reply = Message(sender_id=user_id, receiver_id=story.user_id, message=content, story_id=story.id)
+    db.session.add(reply)
+    db.session.add(Notification(user_id=story.user_id, message=f'{User.query.get(user_id).name} replied to your story.', type='story_reply', story_id=story.id))
+    db.session.commit()
+    return api_response({'id': reply.id, 'receiver_id': story.user_id, 'story_id': story.id}, 'Reply sent', 201)
 
 @app.route('/api/mark-all-read', methods=['POST'])
 @jwt_required()
@@ -2864,15 +2985,47 @@ def get_chats():
                 "last_message": last_message,
                 "last_message_at": latest.timestamp.isoformat() if latest else None,
                 "unread_count": unread_count,
-                "is_online": bool(user.last_active and (datetime.utcnow() - user.last_active).total_seconds() < 300)
+                "is_online": bool(user.last_active and (datetime.utcnow() - user.last_active).total_seconds() < 300),
+                "pinned": bool((preference := ConversationPreference.query.filter_by(user_id=current_user_id, partner_id=user.id).first()) and preference.pinned),
+                "favourite": bool(preference and preference.favourite),
             })
 
-        chats.sort(key=lambda chat: chat["last_message_at"] or "", reverse=True)
+        chats.sort(key=lambda chat: (chat['pinned'], chat["last_message_at"] or ""), reverse=True)
         return jsonify(chats), 200
 
     except Exception as e:
         app.logger.error(f"Error fetching chats: {str(e)}")
         return api_response(message="Failed to fetch conversations", status=500)
+
+
+@app.route('/api/chats/<int:partner_id>', methods=['PATCH', 'DELETE'])
+@jwt_required()
+def manage_chat(partner_id):
+    user_id = int(get_jwt_identity())
+    if not User.query.get(partner_id):
+        return api_response(message='Conversation not found', status=404)
+    if request.method == 'DELETE':
+        messages = Message.query.filter(
+            ((Message.sender_id == user_id) & (Message.receiver_id == partner_id)) |
+            ((Message.sender_id == partner_id) & (Message.receiver_id == user_id))
+        ).all()
+        for message in messages:
+            if message.sender_id == user_id:
+                message.deleted_by_sender = True
+            else:
+                message.deleted_by_receiver = True
+        db.session.commit()
+        return api_response({'id': partner_id}, 'Conversation removed')
+    payload = request.get_json(silent=True) or {}
+    preference = ConversationPreference.query.filter_by(user_id=user_id, partner_id=partner_id).first()
+    if not preference:
+        preference = ConversationPreference(user_id=user_id, partner_id=partner_id)
+        db.session.add(preference)
+    for field in ('pinned', 'favourite'):
+        if field in payload and isinstance(payload[field], bool):
+            setattr(preference, field, payload[field])
+    db.session.commit()
+    return api_response({'id': partner_id, 'pinned': preference.pinned, 'favourite': preference.favourite})
 
 
 @app.route("/api/messages/unread-count", methods=["GET"])

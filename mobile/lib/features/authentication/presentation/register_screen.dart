@@ -149,6 +149,16 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
         return;
       }
+      final accessToken = payload['access_token'] as String?;
+      final refreshToken = payload['refresh_token'] as String?;
+      if ((accessToken ?? '').isEmpty || (refreshToken ?? '').isEmpty) {
+        throw const ApiException('Your account was created, but we could not start a session. Please sign in.');
+      }
+      await ref.read(tokenStorageProvider).save(
+        accessToken: accessToken!,
+        refreshToken: refreshToken!,
+      );
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
       context.go('/home');
     } on ApiException catch (error) {

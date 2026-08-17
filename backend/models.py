@@ -189,6 +189,30 @@ class Story(db.Model):
     expires_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.utcnow()+ timedelta(hours=24)
 )
     user = db.relationship('User', backref=db.backref('stories', lazy='dynamic'))
+    views = db.relationship('StoryView', back_populates='story', cascade='all, delete-orphan')
+    likes = db.relationship('StoryLike', back_populates='story', cascade='all, delete-orphan')
+
+
+class StoryView(db.Model):
+    __tablename__ = 'story_views'
+    id = db.Column(db.Integer, primary_key=True)
+    story_id = db.Column(db.Integer, db.ForeignKey('stories.id', ondelete='CASCADE'), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    viewed_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    story = db.relationship('Story', back_populates='views')
+    user = db.relationship('User')
+    __table_args__ = (db.UniqueConstraint('story_id', 'user_id', name='unique_story_view'),)
+
+
+class StoryLike(db.Model):
+    __tablename__ = 'story_likes'
+    id = db.Column(db.Integer, primary_key=True)
+    story_id = db.Column(db.Integer, db.ForeignKey('stories.id', ondelete='CASCADE'), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    story = db.relationship('Story', back_populates='likes')
+    user = db.relationship('User')
+    __table_args__ = (db.UniqueConstraint('story_id', 'user_id', name='unique_story_like'),)
 
 
 class BlockedUser(db.Model):
@@ -215,6 +239,7 @@ class Message(db.Model):
     message = db.Column(db.Text, nullable=True)
     media_type = db.Column(db.String(10), nullable=True)  # image, video, audio
     media_url = db.Column(db.String(300), nullable=True)
+    story_id = db.Column(db.Integer, db.ForeignKey('stories.id', ondelete='SET NULL'), nullable=True, index=True)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     delivered_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     read_at = db.Column(db.DateTime, nullable=True)
@@ -227,6 +252,17 @@ class Message(db.Model):
 
     def __repr__(self):
         return f"<Message from {self.sender_id} to {self.receiver_id}>"
+
+
+class ConversationPreference(db.Model):
+    __tablename__ = 'conversation_preferences'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    partner_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    pinned = db.Column(db.Boolean, default=False, nullable=False)
+    favourite = db.Column(db.Boolean, default=False, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    __table_args__ = (db.UniqueConstraint('user_id', 'partner_id', name='unique_conversation_preference'),)
 
 
 class FriendRequest(db.Model):
@@ -254,6 +290,7 @@ class Notification(db.Model):
     # friend_request_id can be null for notifications that are not friend-request related
     friend_request_id = db.Column(db.Integer, db.ForeignKey('friend_requests.id'), nullable=True)
     post_id = db.Column(db.Integer, db.ForeignKey('posts.id'), nullable=True)
+    story_id = db.Column(db.Integer, db.ForeignKey('stories.id', ondelete='SET NULL'), nullable=True, index=True)
     read = db.Column(db.Boolean, default=False)  # New field to track read status
     archived = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)

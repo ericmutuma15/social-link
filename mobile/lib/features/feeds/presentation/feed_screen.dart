@@ -20,7 +20,6 @@ class FeedScreen extends ConsumerStatefulWidget {
 
 class _FeedScreenState extends ConsumerState<FeedScreen> {
   List<Map<String, dynamic>> _stories = const [];
-  bool _storiesLoading = true;
 
   @override
   void initState() {
@@ -38,7 +37,6 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     } catch (_) {
       if (mounted) setState(() => _stories = const []);
     } finally {
-      if (mounted) setState(() => _storiesLoading = false);
     }
   }
 
@@ -86,6 +84,11 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (_, _) => AppAsync(message: 'Unable to load posts.', onRetry: () => ref.read(feedProvider.notifier).refresh()),
         data: (posts) {
+          final storyGroups = <Map<String, dynamic>>[];
+          final seenStoryUsers = <Object?>{};
+          for (final story in _stories) {
+            if (seenStoryUsers.add(story['user_id'])) storyGroups.add(story);
+          }
           return RefreshIndicator(
             onRefresh: () async {
               await ref.read(feedProvider.notifier).refresh();
@@ -94,28 +97,21 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
             child: ListView(
               padding: const EdgeInsets.only(bottom: 12),
               children: [
-                if (!_storiesLoading || _stories.isNotEmpty)
-                  SizedBox(
-                    height: 112,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                      itemCount: _stories.isEmpty ? 1 : _stories.length,
-                      separatorBuilder: (_, _) => const SizedBox(width: 12),
-                      itemBuilder: (context, index) {
-                        if (_stories.isEmpty) {
-                          return _EmptyStoryTile(onTap: () => context.push('/explore'));
-                        }
-                        final story = _stories[index];
-                        final photo = story['picture'] as String? ?? story['user_photo'] as String?;
-                        return _StoryTile(
-                          name: story['name'] as String? ?? 'Story',
-                          photo: photo,
-                          onTap: () => _showStory(story),
-                        );
-                      },
-                    ),
+                SizedBox(
+                  height: 112,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                    itemCount: 1 + storyGroups.length,
+                    separatorBuilder: (_, _) => const SizedBox(width: 12),
+                    itemBuilder: (context, index) {
+                      if (index == 0) return _YourStoryTile(onTap: () async { await context.push('/stories/camera'); if (mounted) _loadStories(); });
+                      final story = storyGroups[index - 1];
+                      final photo = story['picture'] as String? ?? story['user_photo'] as String?;
+                      return _StoryTile(name: story['name'] as String? ?? 'Story', photo: photo, onTap: () => _showStory(story));
+                    },
                   ),
+                ),
                 if (posts.isEmpty)
                   Padding(
                     padding: const EdgeInsets.all(24),
@@ -295,24 +291,23 @@ class _StoryTile extends StatelessWidget {
   }
 }
 
-class _EmptyStoryTile extends StatelessWidget {
-  const _EmptyStoryTile({required this.onTap});
+class _YourStoryTile extends StatelessWidget {
+  const _YourStoryTile({required this.onTap});
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: SizedBox(
-        width: 78,
-        child: Column(
-          children: [
-            CircleAvatar(radius: 32, child: const Icon(Icons.explore_outlined)),
-            const SizedBox(height: 6),
-            Text('Explore', textAlign: TextAlign.center, style: Theme.of(context).textTheme.labelSmall),
-          ],
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: SizedBox(
+      width: 78,
+      child: Column(children: [
+        Stack(children: [
+          CircleAvatar(radius: 32, backgroundColor: Theme.of(context).colorScheme.primaryContainer, child: const Icon(Icons.person_outline)),
+          Positioned(right: 0, bottom: 0, child: CircleAvatar(radius: 11, backgroundColor: Theme.of(context).colorScheme.primary, child: const Icon(Icons.add, color: Colors.white, size: 16))),
+        ]),
+        const SizedBox(height: 6),
+        Text('Your story', maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: Theme.of(context).textTheme.labelSmall),
+      ]),
+    ),
+  );
 }

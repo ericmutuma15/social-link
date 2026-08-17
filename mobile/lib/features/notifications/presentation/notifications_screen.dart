@@ -27,6 +27,8 @@ class NotificationsScreen extends ConsumerStatefulWidget {
 class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
   List<Map<String, dynamic>> _items = [];
   bool _loading = true;
+  String _filter = 'all';
+  bool _refreshing = false;
 
   @override
   void initState() {
@@ -35,17 +37,21 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
   }
 
   Future<void> _load() async {
+    if (_refreshing) return;
+    _refreshing = true;
     try {
-      final result = await ref.read(apiProvider).get('/api/notifications');
+      final result = await ref.read(apiProvider).get('/api/notifications', query: {'status': _filter});
       final raw = result['items'] is List
           ? result['items']
           : (result['data'] is Map && result['data']['items'] is List ? result['data']['items'] : const []);
       final data = raw as List<dynamic>? ?? const [];
-      setState(() => _items = data.cast<Map<String, dynamic>>());
+      if (mounted) setState(() => _items = data.cast<Map<String, dynamic>>());
     } catch (_) {
-      setState(() => _items = const []);
+      if (mounted && _items.isEmpty) setState(() => _items = const []);
+      if (mounted && _items.isNotEmpty) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Couldn't refresh notifications. Check your connection and try again.")));
     } finally {
-      setState(() => _loading = false);
+      _refreshing = false;
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -73,26 +79,38 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
       return;
     }
     if (postId != null && postId is num) {
-      if (mounted) context.push('/posts/${postId.toInt()}');
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Open the post from your feed.')));
       return;
     }
-    if (mounted) context.push('/notifications');
+  }
+
+  Future<void> _markAllRead() async {
+    try {
+      await ref.read(apiProvider).post('/api/mark-all-read');
+      if (mounted) {
+        setState(() { for (final item in _items) { item['read'] = true; } });
+        ref.read(notificationUnreadProvider.notifier).state = 0;
+      }
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Unable to mark notifications as read.')));
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Notifications'), actions: const [TopMenuButton()]),
+      appBar: AppBar(title: const Text('Notifications'), actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh), tooltip: 'Refresh'), IconButton(onPressed: _markAllRead, icon: const Icon(Icons.done_all), tooltip: 'Mark all as read'), const TopMenuButton()]),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _items.isEmpty
               ? const Center(child: Text('No news yet. Likes and requests will appear here.'))
-              : ListView.separated(
+              : RefreshIndicator(onRefresh: _load, child: ListView.separated(
                   padding: const EdgeInsets.all(16),
-                  itemCount: _items.length,
+                  itemCount: _items.length + 1,
                   separatorBuilder: (_, _) => const SizedBox(height: 12),
                   itemBuilder: (context, index) {
-                    final item = _items[index];
+                    if (index == 0) return SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: [for (final entry in const {'all': 'All', 'unread': 'Unread', 'read': 'Read'}.entries) Padding(padding: const EdgeInsets.only(right: 8), child: FilterChip(label: Text(entry.value), selected: _filter == entry.key, onSelected: (_) { setState(() => _filter = entry.key); _load(); }))]));
+                    final item = _items[index - 1];
                     final type = item['type'] as String? ?? 'general';
                     final originator = item['originator_name'] as String? ?? 'Someone';
                     final avatar = item['originator_profile_pic'] as String?;
@@ -122,7 +140,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
                       ),
                     );
                   },
-                ),
+                )),
     );
   }
 }
