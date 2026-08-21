@@ -54,6 +54,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   Future<void> _load() async {
     try {
       final user = await ref.read(apiProvider).get('/api/current_user');
+      if (!mounted) return;
       _name.text = user['name'] as String? ?? '';
       _username.text = user['username'] as String? ?? '';
       _bio.text = user['description'] as String? ?? '';

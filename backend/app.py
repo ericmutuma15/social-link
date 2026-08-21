@@ -435,11 +435,49 @@ def public_media_url(path):
         return None
     if path.startswith(('http://', 'https://')):
         return path
-    return f"{request.host_url.rstrip('/')}/{path.lstrip('/')}"
+
+    rel = path.strip()
+    rel = rel.lstrip('/')
+
+    # Normalize the common storage layouts used by the app: bare filenames,
+    # uploads/<name>, and /static/uploads/<name> or /static/<name>.
+    normalized = rel
+    if normalized.startswith('static/'):
+        normalized = normalized[len('static/'):]
+    if normalized.startswith('uploads/'):
+        normalized = normalized[len('uploads/'):]
+
+    # Prefer the canonical public upload route when the file exists on disk.
+    upload_dir = app.config.get("UPLOAD_FOLDER") or os.path.join(app.root_path, 'static', 'uploads')
+    upload_path = os.path.join(upload_dir, os.path.basename(normalized))
+    if os.path.exists(upload_path):
+        return f"{request.host_url.rstrip('/')}/uploads/{os.path.basename(normalized)}"
+
+    # Fall back to the legacy static path if that is where the asset actually lives.
+    static_path = os.path.join(app.static_folder, rel)
+    if os.path.exists(static_path):
+        return f"{request.host_url.rstrip('/')}/{rel}"
+
+    static_upload_path = os.path.join(app.static_folder, 'uploads', os.path.basename(normalized))
+    if os.path.exists(static_upload_path):
+        return f"{request.host_url.rstrip('/')}/uploads/{os.path.basename(normalized)}"
+
+    # Preserve the previous fallback behavior for unknown values, but avoid the
+    # common bug where a value already contains the public upload prefix.
+    public_rel = os.path.basename(normalized) if normalized else rel
+    if rel.startswith('uploads/'):
+        public_rel = rel
+    elif rel.startswith('static/uploads/'):
+        public_rel = rel.replace('static/', '', 1)
+    elif rel.startswith('static/'):
+        public_rel = rel.replace('static/', '', 1)
+    return f"{request.host_url.rstrip('/')}/{public_rel.lstrip('/')}"
 
 
 def public_profile_url(picture):
-    return public_media_url(f"/static/{picture}") if picture else None
+    # `picture` may already be a path (uploads/...), a filename, or a URL.
+    # Let public_media_url normalize and resolve it.
+    return public_media_url(picture) if picture else None
 
 
 def serialize_comment(comment, current_user_id=None):
@@ -476,17 +514,20 @@ def serialize_post(post, current_user_id=None, include_comments=True):
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
 def serve_react(path):
+    if path and (path.startswith("assets/") or path.startswith("static/") or "." in os.path.basename(path)):
+        missing = os.path.join(app.static_folder, path)
+        if not os.path.exists(missing):
+            return Response("Not found", status=404, mimetype="text/plain")
+
     file_path = os.path.join(app.static_folder, path)
 
     if path != "" and os.path.exists(file_path):
         resp = send_from_directory(app.static_folder, path)
-        # During debugging, avoid client cache to ensure fresh assets are fetched.
         resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         resp.headers["Pragma"] = "no-cache"
         resp.headers["Expires"] = "0"
         return resp
-    
-    # fallback for React Router
+
     resp = send_from_directory(app.static_folder, "index.html")
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     resp.headers["Pragma"] = "no-cache"

@@ -147,3 +147,22 @@ def test_google_verification_accepts_boolean_email_verified(monkeypatch):
 
     assert result is not None
     assert result["email"] == "person@example.com"
+
+
+def test_public_media_url_resolves_uploaded_files_without_double_prefixing():
+    app_module = importlib.import_module("app")
+    filename = "public-media-url-test.png"
+    upload_dir = app_module.app.config["UPLOAD_FOLDER"]
+    os.makedirs(upload_dir, exist_ok=True)
+    full_path = os.path.join(upload_dir, filename)
+    with open(full_path, "wb") as fh:
+        fh.write(b"test")
+
+    try:
+        with app_module.app.test_request_context("/"):
+            assert app_module.public_media_url(f"/static/uploads/{filename}") == f"http://localhost/uploads/{filename}"
+            assert app_module.public_media_url(f"uploads/{filename}") == f"http://localhost/uploads/{filename}"
+            assert app_module.public_media_url(filename) == f"http://localhost/uploads/{filename}"
+    finally:
+        if os.path.exists(full_path):
+            os.remove(full_path)
