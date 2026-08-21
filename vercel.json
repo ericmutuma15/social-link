@@ -17,7 +17,7 @@
             }
         },
         {
-            "source": "/(.*)",
+            "source": "/((?!assets|static|images|.*\\.).*)",
             "destination": {
                 "type": "service",
                 "service": "frontend"
