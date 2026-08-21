@@ -13,7 +13,15 @@ class Config:
         os.getenv("DATABASE_URL")
         or f"sqlite:///{os.path.join(BASE_DIR, 'instance', 'users.db')}"
     )
-    SQLALCHEMY_ENGINE_OPTIONS = {"pool_pre_ping": True, "pool_recycle": 1800}
+    # Allow tuning of the SQLAlchemy engine pool. These defaults are conservative
+    # for small deployments; operators should adjust for their environment.
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        "pool_pre_ping": True,
+        "pool_recycle": int(os.getenv("DB_POOL_RECYCLE", "1800")),
+        "pool_size": int(os.getenv("DB_POOL_SIZE", "5")),
+        "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "10")),
+        "pool_timeout": int(os.getenv("DB_POOL_TIMEOUT", "30")),
+    }
     SECRET_KEY = os.getenv("SECRET_KEY") or os.getenv("JWT_SECRET_KEY", "dev-only-change-me")
     JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", SECRET_KEY)
     # Browser clients retain their HTTP-only cookies. Native clients opt in to

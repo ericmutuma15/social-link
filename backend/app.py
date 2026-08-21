@@ -4,6 +4,7 @@ import json
 import secrets
 import hashlib
 import logging
+import time
 import urllib.parse
 import urllib.request
 import uuid
@@ -108,7 +109,16 @@ Talisman(
         "connect-src": ["'self'", "https:"],
     },
 )
-limiter = Limiter(key_func=get_remote_address, app=app, default_limits=["300 per hour"])
+# Initialize rate limiter with a resilient storage backend selection. If the
+# configured storage (e.g. Redis) is unreachable in production, fall back to
+# an in-memory store to avoid blocking every request while still providing
+# basic rate limiting behavior.
+storage_uri = app.config.get("RATELIMIT_STORAGE_URI", "memory://")
+try:
+    limiter = Limiter(key_func=get_remote_address, app=app, default_limits=["300 per hour"], storage_uri=storage_uri)
+except Exception as _e:
+    app.logger.exception("Rate limiter storage init failed (%s); falling back to memory://", storage_uri)
+    limiter = Limiter(key_func=get_remote_address, app=app, default_limits=["300 per hour"], storage_uri="memory://")
 
 # Enable Cross-Origin Resource Sharing for React frontend
 CORS(
@@ -137,6 +147,31 @@ CORS(
 # Allow SocketIO connections from approved origins and common deployment hosts.
 socketio = SocketIO(app, cors_allowed_origins=is_origin_allowed)
 messages_bp = Blueprint('messages', __name__)
+
+
+# Lightweight, production-safe timing instrumentation. Logs slow requests
+# (threshold controlled here) so we can spot blocking operations without
+# spamming logs in normal operation.
+@app.before_request
+def _perf_start():
+    try:
+        request._perf_start = time.time()
+    except Exception:
+        app.logger.exception("perf start failed")
+
+
+@app.after_request
+def _perf_end(response):
+    try:
+        start = getattr(request, "_perf_start", None)
+        if start:
+            elapsed = time.time() - start
+            # Only log requests that are noticeably slow to avoid noisy logs.
+            if elapsed > float(os.getenv("PERF_LOG_THRESHOLD_SEC", "0.5")):
+                app.logger.info("[PERF] %s %s %.3fs", request.method, request.path, elapsed)
+    except Exception:
+        app.logger.exception("perf end failed")
+    return response
 
 # JWT Configuration
 jwt_secret = os.getenv("JWT_SECRET_KEY")

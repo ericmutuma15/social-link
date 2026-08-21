@@ -180,7 +180,26 @@ class _MessagesScreenState extends ConsumerState<MessagesScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : orderedChats.isEmpty
-              ? const Center(child: Text('No conversations yet. Start a conversation from your network.'))
+              ? RefreshIndicator(
+                  onRefresh: _load,
+                  child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(16),
+                    children: [
+                      TextField(controller: _search, onChanged: (value) => setState(() => _query = value), decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Search conversations')),
+                      const SizedBox(height: 10),
+                      SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: [for (final filter in ['All', 'Unread', 'Favourites']) Padding(padding: const EdgeInsets.only(right: 8), child: FilterChip(label: Text(filter), selected: _filter == filter, onSelected: (_) => setState(() => _filter = filter)))])),
+                      const SizedBox(height: 72),
+                      Icon(_filter == 'Unread' ? Icons.mark_chat_read_outlined : Icons.chat_bubble_outline, size: 52, color: Theme.of(context).colorScheme.primary),
+                      const SizedBox(height: 16),
+                      Text(_query.isNotEmpty ? 'No conversations match your search.' : _filter == 'All' ? 'No conversations yet' : 'No ${_filter.toLowerCase()} conversations', textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleMedium),
+                      const SizedBox(height: 8),
+                      const Text('Start chatting with your friends or pull down to refresh.', textAlign: TextAlign.center),
+                      const SizedBox(height: 16),
+                      FilledButton.icon(onPressed: _toggleFriendsSheet, icon: const Icon(Icons.add_comment_outlined), label: const Text('Start a conversation')),
+                    ],
+                  ),
+                )
               : RefreshIndicator(onRefresh: _load, child: ListView.separated(
                   padding: const EdgeInsets.all(16),
                   itemCount: orderedChats.length + 1,

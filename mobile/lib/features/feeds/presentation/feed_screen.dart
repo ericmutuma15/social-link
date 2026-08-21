@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -172,28 +173,16 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   }
 
   void _showStory(Map<String, dynamic> story) {
-    final content = story['content'] as String?;
-    final mediaUrl = story['media_url'] as String?;
+    final userId = story['user_id'];
+    final stories = _stories.where((item) => item['user_id'] == userId).toList()
+      ..sort((a, b) => (a['created_at'] as String? ?? '').compareTo(b['created_at'] as String? ?? ''));
     showDialog(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(story['name'] as String? ?? 'Story'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (mediaUrl != null && mediaUrl.isNotEmpty)
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: CachedNetworkImage(imageUrl: mediaUrl, fit: BoxFit.cover),
-                ),
-              const SizedBox(height: 12),
-              if ((content ?? '').isNotEmpty) Text(content!),
-            ],
-          ),
+      builder: (_) => Dialog.fullscreen(
+        child: _StorySequence(
+          stories: stories,
+          onViewed: (id) => ref.read(apiProvider).post('/api/stories/$id/view'),
         ),
-        actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Close'))],
       ),
     );
   }
@@ -259,6 +248,82 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
 
   void _notice(BuildContext context, String message) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+}
+
+class _StorySequence extends StatefulWidget {
+  const _StorySequence({required this.stories, required this.onViewed});
+  final List<Map<String, dynamic>> stories;
+  final Future<Map<String, dynamic>> Function(int id) onViewed;
+
+  @override
+  State<_StorySequence> createState() => _StorySequenceState();
+}
+
+class _StorySequenceState extends State<_StorySequence> {
+  late final PageController _controller;
+  Timer? _advanceTimer;
+  var _index = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = PageController();
+    _recordAndSchedule();
+  }
+
+  @override
+  void dispose() {
+    _advanceTimer?.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _recordAndSchedule() {
+    final id = widget.stories[_index]['id'];
+    if (id is int) widget.onViewed(id).catchError((_) => <String, dynamic>{});
+    _advanceTimer?.cancel();
+    _advanceTimer = Timer(const Duration(seconds: 5), _next);
+  }
+
+  void _next() {
+    if (!mounted) return;
+    if (_index >= widget.stories.length - 1) {
+      Navigator.of(context).pop();
+      return;
+    }
+    _controller.nextPage(duration: const Duration(milliseconds: 220), curve: Curves.easeOut);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final story = widget.stories[_index];
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        child: Stack(children: [
+          PageView.builder(
+            controller: _controller,
+            itemCount: widget.stories.length,
+            onPageChanged: (index) { setState(() => _index = index); _recordAndSchedule(); },
+            itemBuilder: (_, index) {
+              final item = widget.stories[index];
+              final url = item['media_url'] as String?;
+              final text = item['content'] as String?;
+              return GestureDetector(
+                onTapUp: (details) => details.localPosition.dx < MediaQuery.sizeOf(context).width / 2 ? _controller.previousPage(duration: const Duration(milliseconds: 180), curve: Curves.easeOut) : _next(),
+                child: Center(child: url != null && url.isNotEmpty
+                    ? CachedNetworkImage(imageUrl: url, fit: BoxFit.contain, placeholder: (_, _) => const CircularProgressIndicator(color: Colors.white), errorWidget: (_, _, _) => const Icon(Icons.broken_image_outlined, color: Colors.white, size: 52))
+                    : Padding(padding: const EdgeInsets.all(32), child: Text(text ?? '', textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w600))),),
+              );
+            },
+          ),
+          Positioned(top: 8, left: 12, right: 12, child: Row(children: [for (var i = 0; i < widget.stories.length; i++) Expanded(child: Container(height: 3, margin: const EdgeInsets.symmetric(horizontal: 2), color: i <= _index ? Colors.white : Colors.white38))])),
+          Positioned(top: 20, right: 8, child: IconButton(onPressed: () => Navigator.of(context).pop(), icon: const Icon(Icons.close, color: Colors.white))),
+          Positioned(top: 28, left: 16, child: Text(story['name'] as String? ?? 'Story', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700))),
+        ]),
+      ),
+    );
   }
 }
 
