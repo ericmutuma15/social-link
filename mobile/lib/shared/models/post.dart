@@ -36,7 +36,7 @@ class Post {
         DateTime.tryParse(json['timestamp'] as String? ?? '') ?? DateTime.now(),
     authorPhoto: resolveProfileImageUrl(json['user_photo'] as String?),
     content: json['content'] as String?,
-    mediaUrl: json['media_url'] as String?,
+    mediaUrl: resolveProfileImageUrl(json['media_url'] as String?),
     mediaType: json['media_type'] as String?,
     likes: json['likes'] as int? ?? 0,
     liked: json['liked'] as bool? ?? false,

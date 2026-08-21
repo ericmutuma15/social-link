@@ -4,6 +4,7 @@ import { io } from "socket.io-client";
 import { HiOutlineArrowLeft, HiOutlineCamera, HiOutlineEmojiHappy, HiOutlineMicrophone, HiOutlinePaperClip, HiOutlineInformationCircle, HiOutlineCheck, HiOutlineStop } from "react-icons/hi";
 import toast from "react-hot-toast";
 import api from "../../services/apiClient";
+import resolveAsset from "../../services/urlHelper";
 import EmojiPicker from "../../components/EmojiPicker";
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
@@ -14,10 +15,24 @@ export default function Chat() {
   const [me, setMe] = useState(null), [partner, setPartner] = useState(null), [messages, setMessages] = useState([]), [value, setValue] = useState(""), [file, setFile] = useState(null), [sending, setSending] = useState(false), [emojiOpen, setEmojiOpen] = useState(false), [loading, setLoading] = useState(true), [typing, setTyping] = useState(false), [cameraOpen, setCameraOpen] = useState(false), [recording, setRecording] = useState(false), [recordedSeconds, setRecordedSeconds] = useState(0);
   const inputRef = useRef(), endRef = useRef(), videoRef = useRef(), streamRef = useRef(), recorderRef = useRef(), chunksRef = useRef(), socketRef = useRef(), typingTimer = useRef(), recordTimer = useRef();
   useEffect(() => { let active = true; Promise.all([api.get("/api/current_user"), api.get(`/api/user/${userId}`), api.get(`/api/messages/${userId}`)]).then(([current, person, history]) => { if (!active) return; setMe(current.data); setPartner(person.data); setMessages(Array.isArray(history.data) ? history.data : history.data?.data || []); return api.put(`/api/messages/read/${userId}`); }).catch(() => toast.error("Unable to load this conversation." )).finally(() => active && setLoading(false)); return () => { active = false; }; }, [userId]);
-  useEffect(() => { if (!me) return; const socket = io(import.meta.env.VITE_API_BASE_URL, { withCredentials: true }); socketRef.current = socket; socket.on("connect", () => socket.emit("join_chat", { user_id: me.id })); socket.on("new_message", (message) => { if (Number(message.sender_id) === Number(userId)) { setMessages(current => current.some(item => item.id === message.id) ? current : [...current, message]); api.put(`/api/messages/read/${userId}`).catch(() => {}); } }); socket.on("typing", ({ sender_id, is_typing }) => { if (Number(sender_id) === Number(userId)) setTyping(is_typing); }); socket.on("messages_read", () => setMessages(current => current.map(message => message.sender_id === me.id ? { ...message, is_read: true } : message))); return () => socket.disconnect(); }, [me, userId]);
+  useEffect(() => { if (!me) return; const socket = io(import.meta.env.VITE_API_BASE_URL, { withCredentials: true }); socketRef.current = socket; socket.on("connect", () => socket.emit("join_chat", { user_id: me.id })); socket.on("new_message", (message) => { if (Number(message.sender_id) === Number(userId)) { safeAppendMessage(message); api.put(`/api/messages/read/${userId}`).catch(() => {}); } }); socket.on("typing", ({ sender_id, is_typing }) => { if (Number(sender_id) === Number(userId)) setTyping(is_typing); }); socket.on("messages_read", () => { try { safeMarkRead(); } catch (_) {} }); return () => socket.disconnect(); }, [me, userId]);
   useEffect(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), [messages, typing]);
   useEffect(() => () => { if (file?.preview) URL.revokeObjectURL(file.preview); clearInterval(recordTimer.current); streamRef.current?.getTracks().forEach(track => track.stop()); }, [file]);
   const groups = useMemo(() => messages.reduce((all, message) => { const key = new Date(message.timestamp).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }); (all[key] ||= []).push(message); return all; }, {}), [messages]);
+  // Safely append a message ensuring `messages` is an array
+  const safeAppendMessage = (message) => {
+    setMessages((current) => {
+      const list = Array.isArray(current) ? current : [];
+      try {
+        if (list.some((item) => item.id === message.id)) return list;
+      } catch (_) {}
+      return [...list, message];
+    });
+  };
+
+  const safeMarkRead = () => {
+    setMessages((current) => Array.isArray(current) ? current.map((m) => (m.sender_id === me?.id ? { ...m, is_read: true } : m)) : current);
+  };
   const attach = selected => { if (!selected) return; if (selected.size > MAX_FILE_SIZE) return toast.error("Maximum upload size is 20 MB."); if (!permitted.some(type => selected.type.startsWith(type))) return toast.error("This file format isn't supported."); setFile({ raw: selected, preview: URL.createObjectURL(selected) }); };
   const chooseFile = event => attach(event.target.files?.[0]);
   const resize = element => { element.style.height = "auto"; element.style.height = `${Math.min(element.scrollHeight, 130)}px`; };

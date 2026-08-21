@@ -309,7 +309,7 @@ class _StorySequenceState extends State<_StorySequence> {
             onPageChanged: (index) { setState(() => _index = index); _recordAndSchedule(); },
             itemBuilder: (_, index) {
               final item = widget.stories[index];
-              final url = item['media_url'] as String?;
+              final url = resolveProfileImageUrl(item['media_url'] as String?);
               final text = item['content'] as String?;
               return GestureDetector(
                 onTapUp: (details) => details.localPosition.dx < MediaQuery.sizeOf(context).width / 2 ? _controller.previousPage(duration: const Duration(milliseconds: 180), curve: Curves.easeOut) : _next(),

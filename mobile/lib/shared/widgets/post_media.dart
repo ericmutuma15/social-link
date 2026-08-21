@@ -1,6 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
+import '../utils/profile_image.dart';
 
 class PostMedia extends StatelessWidget {
   const PostMedia({super.key, required this.url, this.type});
@@ -11,13 +12,14 @@ class PostMedia extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (_video) return _Video(url: url);
+    final resolved = resolveProfileImageUrl(url);
+    if (_video) return _Video(url: resolved ?? url);
     return GestureDetector(
-      onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => _ImageViewer(url: url))),
+      onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => _ImageViewer(url: resolved ?? url))),
       child: Hero(
-        tag: url,
+        tag: resolved ?? url,
         child: CachedNetworkImage(
-          imageUrl: url,
+          imageUrl: resolved ?? '',
           fit: BoxFit.cover,
           placeholder: (_, _) => const AspectRatio(aspectRatio: 4 / 3, child: Center(child: CircularProgressIndicator())),
           errorWidget: (_, _, _) => const AspectRatio(aspectRatio: 4 / 3, child: Center(child: Icon(Icons.broken_image_outlined))),

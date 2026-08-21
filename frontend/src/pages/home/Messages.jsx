@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { HiOutlineChatAlt2, HiOutlinePlus, HiOutlineSearch, HiOutlineX } from "react-icons/hi";
 import { useNavigate } from "react-router-dom";
 
-const avatar = (person) => person.profile_pic || person.picture || "/default-profile.png";
+import resolveAsset from "../../services/urlHelper";
+
+const avatar = (person) => resolveAsset(person?.profile_pic || person?.picture || "/default-profile.png");
 export default function Messages() {
   const baseUrl = import.meta.env.VITE_API_BASE_URL, navigate = useNavigate();
   const [chats, setChats] = useState([]), [friends, setFriends] = useState([]), [loading, setLoading] = useState(true), [query, setQuery] = useState(""), [showNew, setShowNew] = useState(false);

@@ -144,6 +144,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     Card(child: Padding(padding: const EdgeInsets.all(20), child: Text(viewingOwnProfile ? 'You have not posted anything yet.' : 'This user has not shared any posts yet.', textAlign: TextAlign.center)))
                   else ..._posts.map((post) {
                     final mediaUrl = post['media_url'] as String?;
+                    final resolvedMedia = resolveProfileImageUrl(mediaUrl);
                     final content = post['content'] as String? ?? '';
                     return Card(
                       child: Padding(
@@ -155,11 +156,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                               Text(content),
                               const SizedBox(height: 12),
                             ],
-                            if (mediaUrl != null && mediaUrl.isNotEmpty)
+                            if (resolvedMedia != null && resolvedMedia.isNotEmpty)
                               ClipRRect(
                                 borderRadius: BorderRadius.circular(12),
                                 child: CachedNetworkImage(
-                                  imageUrl: mediaUrl,
+                                  imageUrl: resolvedMedia,
                                   fit: BoxFit.cover,
                                   placeholder: (_, _) => const SizedBox(height: 180, child: Center(child: CircularProgressIndicator())),
                                   errorWidget: (_, _, _) => const SizedBox(height: 180, child: Center(child: Icon(Icons.broken_image_outlined))),
