@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../feeds/presentation/comments_sheet.dart';
 import '../../feeds/presentation/feed_controller.dart';
+import '../../../shared/utils/profile_image.dart';
 
 class SearchScreen extends ConsumerStatefulWidget {
   const SearchScreen({super.key});
@@ -163,8 +164,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                         if (_users.isNotEmpty) ...[
                           Text('People', style: Theme.of(context).textTheme.titleMedium),
                           const SizedBox(height: 8),
-                          ..._users.map((u) => ListTile(
-                                leading: CircleAvatar(backgroundImage: (u['photo'] as String?) == null ? null : CachedNetworkImageProvider(u['photo'] as String)),
+                            ..._users.map((u) => ListTile(
+                              leading: CircleAvatar(backgroundImage: resolveProfileImageUrl(u['photo'] as String?) == null ? null : CachedNetworkImageProvider(resolveProfileImageUrl(u['photo'] as String?)!)),
                                 title: Text(u['name'] as String? ?? u['username'] as String? ?? 'User'),
                                 subtitle: Text(u['username'] as String? ?? ''),
                                 onTap: () => Navigator.of(context).pushNamed('/profile', arguments: {'id': u['id']}),

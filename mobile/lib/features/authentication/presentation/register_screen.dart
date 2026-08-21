@@ -66,9 +66,15 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     final email = _email.text.trim();
     if (email.isEmpty) return;
     try {
-      await ref.read(apiProvider).post('/api/resend-verification', data: {'email': email});
+      final result = await ref.read(apiProvider).post('/api/resend-verification', data: {'email': email});
+      final data = result['data'] as Map<String, dynamic>? ?? {};
+      final link = data['link'] as String?;
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('A fresh verification email has been sent.')));
+        if (link != null && link.isNotEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Verification link: $link')));
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('A fresh verification email has been sent.')));
+        }
       }
     } catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));

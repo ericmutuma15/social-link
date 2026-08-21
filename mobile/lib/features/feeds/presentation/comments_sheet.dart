@@ -12,6 +12,7 @@ import 'package:go_router/go_router.dart';
 import '../../feeds/presentation/rich_comment_composer.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'feed_controller.dart';
+import '../../../shared/utils/profile_image.dart';
 
 class CommentsSheet extends ConsumerStatefulWidget {
   const CommentsSheet({super.key, required this.postId});
@@ -240,7 +241,7 @@ class _CommentsSheetState extends ConsumerState<CommentsSheet> {
                             itemBuilder: (_, idx) {
                               if (idx < _comments.length) {
                                 final comment = _comments[idx];
-                                final photo = comment['user_photo'] as String?;
+                                final photo = resolveProfileImageUrl(comment['user_photo'] as String?);
                                 final userId = comment['user_id'];
                                 return ListTile(
                                   leading: GestureDetector(onTap: userId == null ? null : () => context.push('/profile/$userId'), child: CircleAvatar(backgroundImage: photo == null ? null : CachedNetworkImageProvider(photo), child: photo == null ? Text((comment['user_name'] as String? ?? 'U').substring(0, 1)) : null)),

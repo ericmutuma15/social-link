@@ -4,7 +4,6 @@ import json
 import secrets
 import hashlib
 import logging
-import time
 import urllib.parse
 import urllib.request
 import uuid
@@ -49,7 +48,7 @@ from werkzeug.security import generate_password_hash
 from werkzeug.utils import secure_filename
 
 from sqlalchemy.orm import joinedload, aliased
-from sqlalchemy import case, inspect, text
+from sqlalchemy import case, inspect
 from io import BytesIO
 from flask import send_file, Response
 
@@ -109,16 +108,7 @@ Talisman(
         "connect-src": ["'self'", "https:"],
     },
 )
-# Initialize rate limiter with a resilient storage backend selection. If the
-# configured storage (e.g. Redis) is unreachable in production, fall back to
-# an in-memory store to avoid blocking every request while still providing
-# basic rate limiting behavior.
-storage_uri = app.config.get("RATELIMIT_STORAGE_URI", "memory://")
-try:
-    limiter = Limiter(key_func=get_remote_address, app=app, default_limits=["300 per hour"], storage_uri=storage_uri)
-except Exception as _e:
-    app.logger.exception("Rate limiter storage init failed (%s); falling back to memory://", storage_uri)
-    limiter = Limiter(key_func=get_remote_address, app=app, default_limits=["300 per hour"], storage_uri="memory://")
+limiter = Limiter(key_func=get_remote_address, app=app, default_limits=["300 per hour"])
 
 # Enable Cross-Origin Resource Sharing for React frontend
 CORS(
@@ -147,31 +137,6 @@ CORS(
 # Allow SocketIO connections from approved origins and common deployment hosts.
 socketio = SocketIO(app, cors_allowed_origins=is_origin_allowed)
 messages_bp = Blueprint('messages', __name__)
-
-
-# Lightweight, production-safe timing instrumentation. Logs slow requests
-# (threshold controlled here) so we can spot blocking operations without
-# spamming logs in normal operation.
-@app.before_request
-def _perf_start():
-    try:
-        request._perf_start = time.time()
-    except Exception:
-        app.logger.exception("perf start failed")
-
-
-@app.after_request
-def _perf_end(response):
-    try:
-        start = getattr(request, "_perf_start", None)
-        if start:
-            elapsed = time.time() - start
-            # Only log requests that are noticeably slow to avoid noisy logs.
-            if elapsed > float(os.getenv("PERF_LOG_THRESHOLD_SEC", "0.5")):
-                app.logger.info("[PERF] %s %s %.3fs", request.method, request.path, elapsed)
-    except Exception:
-        app.logger.exception("perf end failed")
-    return response
 
 # JWT Configuration
 jwt_secret = os.getenv("JWT_SECRET_KEY")
@@ -245,7 +210,6 @@ from models import (
     db,
     User,
     Message,
-    ConversationPreference,
     FriendRequest,
     Friendship,
     Post,
@@ -256,11 +220,8 @@ from models import (
     Community,
     CommunityMember,
     Story,
-    StoryView,
-    StoryLike,
     TokenBlocklist,
     AuditLog,
-    BlockedUser,
 )
 
 db.init_app(app)
@@ -354,35 +315,8 @@ def create_or_get_oauth_user(email, name):
     return user
 
 
-def ensure_required_columns():
-    """Backfill missing additive columns on older deployments without crashing startup."""
-    try:
-        with app.app_context():
-            inspector = inspect(db.engine)
-            required_columns = {
-                "posts": {"thumbnail_url": "VARCHAR(300)"},
-                "stories": {"thumbnail_url": "VARCHAR(300)"},
-                "comments": {
-                    "attachment_url": "VARCHAR(300)",
-                    "attachment_name": "VARCHAR(255)",
-                },
-            }
-            for table_name, columns in required_columns.items():
-                if not inspector.has_table(table_name):
-                    continue
-                existing_columns = {col["name"] for col in inspector.get_columns(table_name)}
-                for column_name, column_type in columns.items():
-                    if column_name in existing_columns:
-                        continue
-                    db.session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"))
-            db.session.commit()
-    except Exception:
-        app.logger.exception("Failed to ensure required DB columns for the app schema")
-
-
 with app.app_context():
     db.create_all()
-    ensure_required_columns()
     try:
         ensure_default_user()
     except Exception as e:
@@ -508,26 +442,14 @@ def public_profile_url(picture):
     return public_media_url(f"/static/{picture}") if picture else None
 
 
-def profile_avatar_url(user):
-    if not user:
-        return None
-    if getattr(user, 'avatar_data', None):
-        return url_for('get_user_avatar', user_id=user.id, _external=True)
-    if user.picture:
-        return url_for('serve_image', filename=user.picture, _external=True)
-    return None
-
-
 def serialize_comment(comment, current_user_id=None):
     return {
         "id": comment.id,
         "content": comment.content,
         "user_id": comment.user_id,
         "user_name": comment.user.name if comment.user else "Unknown",
-        "user_photo": profile_avatar_url(comment.user) if comment.user else None,
+        "user_photo": public_profile_url(comment.user.picture if comment.user else None),
         "timestamp": comment.timestamp.isoformat(),
-        "attachment_url": public_media_url(comment.attachment_url) if getattr(comment, 'attachment_url', None) else None,
-        "attachment_name": comment.attachment_name if getattr(comment, 'attachment_name', None) else None,
         "is_owner": comment.user_id == current_user_id,
     }
 
@@ -538,10 +460,9 @@ def serialize_post(post, current_user_id=None, include_comments=True):
         "id": post.id,
         "user_id": post.user_id,
         "user_name": post.user.name if post.user else "Unknown",
-        "user_photo": profile_avatar_url(post.user) if post.user else None,
+        "user_photo": public_profile_url(post.user.picture if post.user else None),
         "content": post.content,
         "media_url": public_media_url(post.media_url),
-        "thumbnail_url": public_media_url(post.thumbnail_url) if getattr(post, 'thumbnail_url', None) else None,
         "media_type": media_type_for(post.media_url) if post.media_url else None,
         "timestamp": post.timestamp.isoformat(),
         "likes": post.like_count(),
@@ -609,13 +530,7 @@ def session_status():
 def refresh():
     current_user = get_jwt_identity()
     new_token = create_access_token(identity=current_user)
-    mobile_client = bool((request.get_json(silent=True) or {}).get("mobile_client") or request.headers.get("X-Mobile-Client"))
-    response = jsonify({
-        "success": True,
-        "message": "Token refreshed",
-        "data": {"access_token": new_token} if mobile_client else None,
-        "errors": [],
-    })
+    response = jsonify({"success": True, "message": "Token refreshed", "data": None, "errors": []})
     set_access_cookies(response, new_token)
     return response
 
@@ -634,15 +549,8 @@ def register():
     if errors:
         return api_response(message="Registration validation failed", status=422, errors=errors)
 
-    verification_required = bool(app.config.get("REQUIRE_EMAIL_VERIFICATION"))
-    mail_ready, _ = mail_delivery_ready()
-    if verification_required and not mail_ready:
-        # Fail before inserting anything: a retry must not hit a misleading
-        # duplicate-email error after an account was only partially provisioned.
-        return api_response(message="Account verification is temporarily unavailable. Please try again later.", status=503)
-
     if User.query.filter_by(email=email).first():
-        return api_response(message="An account with this email already exists. Try logging in instead.", status=409)
+        return api_response(message="Email already registered", status=409)
 
     is_super_user = email == "ericmutuma15@gmail.com"
 
@@ -659,7 +567,8 @@ def register():
         db.session.add(new_user)
         db.session.flush()
         verification_sent = False
-        if verification_required and mail_ready:
+        mail_ready, _ = mail_delivery_ready()
+        if mail_ready:
             token = make_account_token(new_user.id, "verify")
             new_user.verification_token = hashlib.sha256(token.encode()).hexdigest()
             new_user.verification_sent_at = datetime.utcnow()
@@ -667,9 +576,10 @@ def register():
             verification_sent = send_account_email("Verify your Mbogi account", email, f"Verify your email within 24 hours: {verify_url}")
             if not verification_sent:
                 app.logger.warning("Verification email could not be delivered for %s", email)
-        # Do not create a dead-end account when verification is disabled (the
-        # production default) or the mail service has not been configured.
-        new_user.is_verified = not verification_required
+        else:
+            app.logger.warning("Skipping verification email for %s because SMTP delivery is not configured.", email)
+
+        new_user.is_verified = False
         if not verification_sent:
             new_user.verification_token = None
             new_user.verification_sent_at = None
@@ -678,21 +588,16 @@ def register():
         db.session.commit()
         response_payload = {
             "email": email,
-            "user_id": new_user.id,
-            "requires_verification": verification_required,
+            "requires_verification": True,
             "verification_sent": verification_sent,
         }
-        mobile_client = bool(data.get("mobile_client") or request.headers.get("X-Mobile-Client"))
-        if mobile_client and new_user.is_verified:
-            response_payload.update({
-                "access_token": create_access_token(identity=new_user.id),
-                "refresh_token": create_refresh_token(identity=new_user.id),
-            })
         if verification_sent:
             return api_response(response_payload, "Account created. Please verify your email before logging in.", 201)
-        if new_user.is_verified:
-            return api_response(response_payload, "Account created successfully.", 201)
-        return api_response(response_payload, "Account created. Please verify your email before logging in.", 201)
+        return api_response(
+            response_payload,
+            "Account created, but we could not send a verification email. Please use the resend option after mail is configured.",
+            201,
+        )
 
     except Exception as e:
         db.session.rollback()
@@ -792,9 +697,16 @@ def resend_verification():
         token = make_account_token(user.id, "verify")
         user.verification_token = hashlib.sha256(token.encode()).hexdigest()
         user.verification_sent_at = datetime.utcnow()
-        sent = send_account_email("Verify your Mbogi account", email, f"Verify your email within 24 hours: {app.config['FRONTEND_URL'].rstrip('/')}/verify-email?token={token}")
+        link = f"{app.config['FRONTEND_URL'].rstrip('/')}/verify-email?token={token}"
+        sent = send_account_email("Verify your Mbogi account", email, f"Verify your email within 24 hours: {link}")
         if not sent:
             app.logger.warning("Verification email could not be delivered for %s", email)
+            # In non-production environments, return the verification link so developers
+            # and native clients can complete verification without an SMTP provider.
+            if (app.config.get('APP_ENV') or 'development').lower() != 'production':
+                audit("auth.verification_resent", user.id)
+                db.session.commit()
+                return api_response(data={"email": email, "sent": False, "link": link}, message="Email delivery not configured. Use the provided link to verify (development only).")
             return api_response(message="We could not send a verification email right now. Please try again later or contact support.", status=503)
         audit("auth.verification_resent", user.id)
         db.session.commit()
@@ -1176,43 +1088,6 @@ def discover_users():
         return jsonify({"error": "Unable to discover users"}), 500
 
 
-@app.route('/api/search', methods=['GET'])
-@jwt_required()
-def search():
-    """Search users and posts. Query param: q"""
-    q = (request.args.get('q') or '').strip()
-    if not q:
-        return api_response(data={'items': []}, message='No query provided')
-    try:
-        # simple case-insensitive contains search
-        like = f"%{q}%"
-        users = User.query.filter(User.name.ilike(like)).limit(20).all()
-        posts = Post.query.filter(Post.content.ilike(like)).limit(50).all()
-
-        items = []
-        for u in users:
-            items.append({
-                'type': 'user',
-                'id': u.id,
-                'name': u.name,
-                'username': getattr(u, 'username', None),
-                'picture': url_for('serve_image', filename=u.picture, _external=True) if u.picture else None,
-            })
-        for p in posts:
-            items.append({
-                'type': 'post',
-                'id': p.id,
-                'content': p.content,
-                'user_id': p.user_id,
-                'user_name': p.user.name if p.user else None,
-            })
-
-        return api_response(data={'items': items}, message='Search results')
-    except Exception as e:
-        app.logger.exception('Search failed')
-        return api_response(message='Search failed', status=500)
-
-
 @app.route("/api/users", methods=["POST"])
 @jwt_required()
 def create_workspace_user():
@@ -1269,18 +1144,6 @@ def get_current_user():
             if user.picture else None
         )
 
-        settings = dict(user.settings or {})
-        privacy = dict(settings.get('privacy') or {})
-        privacy_defaults = {
-            'profile_visibility': 'public',
-            'allow_friend_requests': True,
-            'show_online_status': True,
-            'allow_direct_messages': True,
-        }
-        privacy_defaults.update(privacy)
-        settings['privacy'] = privacy_defaults
-        user.settings = settings
-
         # Send the user data as a JSON response
         data = {
             'id': user.id,
@@ -1313,122 +1176,6 @@ def get_current_user():
     except Exception as e:
         app.logger.error(f"Error fetching user data: {str(e)}")
         return jsonify({"error": f"Error fetching user data: {str(e)}"}), 500
-
-
-def get_default_privacy_settings():
-    return {
-        'profile_visibility': 'public',
-        'allow_friend_requests': True,
-        'show_online_status': True,
-        'allow_direct_messages': True,
-    }
-
-
-@app.route('/api/privacy', methods=['GET', 'PATCH'])
-@jwt_required()
-def manage_privacy_settings():
-    user = User.query.get(get_jwt_identity())
-    if not user:
-        return api_response(message='User not found', status=404)
-
-    settings = dict(user.settings or {})
-    privacy = dict(settings.get('privacy') or {})
-    merged = get_default_privacy_settings()
-    merged.update(privacy)
-    settings['privacy'] = merged
-
-    if request.method == 'GET':
-        user.settings = settings
-        return api_response(data={'privacy': merged}, message='Privacy settings loaded')
-
-    payload = request.get_json(silent=True) or {}
-    if not isinstance(payload, dict):
-        return api_response(message='Privacy settings must be provided as a JSON object', status=400)
-
-    allowed_keys = {'profile_visibility', 'allow_friend_requests', 'show_online_status', 'allow_direct_messages'}
-    invalid_keys = set(payload.keys()) - allowed_keys
-    if invalid_keys:
-        return api_response(message=f"Unsupported privacy keys: {', '.join(sorted(invalid_keys))}", status=400)
-
-    if 'profile_visibility' in payload:
-        value = str(payload['profile_visibility']).lower()
-        if value not in {'public', 'friends', 'private'}:
-            return api_response(message='Profile visibility must be public, friends, or private.', status=400)
-        merged['profile_visibility'] = value
-
-    for key in ('allow_friend_requests', 'show_online_status', 'allow_direct_messages'):
-        if key in payload:
-            if not isinstance(payload[key], bool):
-                return api_response(message=f'{key} must be true or false.', status=400)
-            merged[key] = payload[key]
-
-    settings['privacy'] = merged
-    user.settings = settings
-    db.session.commit()
-    return api_response(data={'privacy': merged}, message='Privacy settings updated')
-
-
-@app.route('/api/blocks', methods=['GET'])
-@jwt_required()
-def list_blocked_users():
-    current_user_id = get_jwt_identity()
-    blocks = BlockedUser.query.filter_by(user_id=current_user_id).order_by(BlockedUser.created_at.desc()).all()
-    items = []
-    for block in blocks:
-        target = block.blocked_user
-        items.append({
-            'id': target.id if target else block.blocked_user_id,
-            'name': (target.name if target else 'Unknown user'),
-            'username': target.username if target else None,
-            'avatar': url_for('get_user_avatar', user_id=(target.id if target else block.blocked_user_id), _external=True) if target else None,
-        })
-    return api_response(data={'items': items}, message='Blocked users loaded')
-
-
-@app.route('/api/blocks/<int:blocked_user_id>', methods=['POST', 'DELETE'])
-@jwt_required()
-def manage_block(blocked_user_id):
-    current_user_id = get_jwt_identity()
-    if current_user_id == blocked_user_id:
-        return api_response(message='You cannot block yourself.', status=400)
-
-    target = User.query.get(blocked_user_id)
-    if not target:
-        return api_response(message='User not found', status=404)
-
-    if request.method == 'POST':
-        existing = BlockedUser.query.filter_by(user_id=current_user_id, blocked_user_id=blocked_user_id).first()
-        if existing:
-            return api_response(data={'id': blocked_user_id}, message='User already blocked', status=200)
-        block = BlockedUser(user_id=current_user_id, blocked_user_id=blocked_user_id)
-        db.session.add(block)
-        db.session.commit()
-        return api_response(data={'id': blocked_user_id, 'name': target.name}, message='User blocked', status=201)
-
-    existing = BlockedUser.query.filter_by(user_id=current_user_id, blocked_user_id=blocked_user_id).first()
-    if not existing:
-        return api_response(message='This user is not in your block list', status=404)
-    db.session.delete(existing)
-    db.session.commit()
-    return api_response(data={'id': blocked_user_id}, message='User unblocked')
-
-
-@app.route('/api/about', methods=['GET'])
-def get_about():
-    return api_response(data={
-        'title': 'About Mbogi Link',
-        'summary': 'Mbogi Link helps communities connect, share updates, and keep in touch with the people that matter.',
-        'version': '1.0.0',
-    }, message='About information loaded')
-
-
-@app.route('/api/legal', methods=['GET'])
-def get_legal():
-    return api_response(data={
-        'terms': 'By using Mbogi Link, you agree to use the platform respectfully and legally.',
-        'privacy_notice': 'We protect your account data and only use it to provide core social features.',
-        'contact': 'support@mbogi.dev',
-    }, message='Legal information loaded')
 
 
 @app.route("/api/account", methods=["DELETE"])
@@ -1624,11 +1371,9 @@ def create_post():
         current_user_id = get_jwt_identity()
         form_data = request.form.to_dict(flat=True)
         media = request.files.get('media')
-        thumbnail = request.files.get('thumbnail')
 
         content = (form_data.get('content') or '').strip()
         media_url = None
-        thumbnail_url = None
 
         uploads_folder = os.path.join(app.root_path, 'static/uploads')
         if not os.path.exists(uploads_folder):
@@ -1642,21 +1387,6 @@ def create_post():
             media.save(os.path.join(uploads_folder, media_filename))
             media_url = f'/static/uploads/{media_filename}'
 
-        if thumbnail:
-            # accept thumbnail but validate as image
-            thumb_error = None
-            if not thumbnail or not thumbnail.filename:
-                thumb_error = "Choose a thumbnail file to upload."
-            else:
-                ext = thumbnail.filename.rsplit('.', 1)[-1].lower()
-                if ext not in ('png', 'jpg', 'jpeg', 'gif', 'webp', 'avif'):
-                    thumb_error = "Thumbnail must be an image."
-            if thumb_error:
-                return api_response(message=thumb_error, status=400)
-            thumb_filename = f"{uuid.uuid4().hex}_{secure_filename(thumbnail.filename)}"
-            thumbnail.save(os.path.join(uploads_folder, thumb_filename))
-            thumbnail_url = f'/static/uploads/{thumb_filename}'
-
         if len(content) > 5000:
             return api_response(message="Your post is too long.", status=400)
         if not content and not media_url:
@@ -1665,7 +1395,6 @@ def create_post():
         post = Post(
             content=content,
             media_url=media_url,
-            thumbnail_url=thumbnail_url,
             user_id=current_user_id,
             timestamp=datetime.utcnow()
         )
@@ -1756,32 +1485,6 @@ def delete_post(post_id):
     return api_response(data={"post_id": post_id}, message="Post deleted")
 
 
-@app.route('/api/posts/<int:post_id>', methods=['PUT'])
-@jwt_required()
-def update_post(post_id):
-    """Update only the text of a post; media replacement remains an explicit upload flow."""
-    user_id = get_jwt_identity()
-    post = Post.query.get(post_id)
-    if not post:
-        return api_response(message="Post not found", status=404)
-    if post.user_id != user_id:
-        return api_response(message="You can only edit your own posts.", status=403)
-    data = request.get_json(silent=True) or {}
-    content = (data.get("content") or "").strip()
-    if len(content) > 5000:
-        return api_response(message="Your post is too long.", status=422)
-    if not content and not post.media_url:
-        return api_response(message="Add text or an attachment to publish your post.", status=422)
-    post.content = content
-    try:
-        db.session.commit()
-        return api_response(data=serialize_post(post, user_id), message="Post updated")
-    except Exception:
-        db.session.rollback()
-        app.logger.exception("Post update failed")
-        return api_response(message="Your post could not be updated. Please try again.", status=500)
-
-
 @app.route('/api/posts/<int:post_id>/like', methods=['POST'])
 @jwt_required()
 def like_post(post_id):
@@ -1819,9 +1522,9 @@ def like_post(post_id):
         db.session.commit()
         result = {"post_id": post_id, "likes": post.like_count(), "liked": True}
         if post.user_id != user_id:
-            db.session.add(Notification(user_id=post.user_id, message=f"{user.name} liked your post", type="like", post_id=post.id))
+            db.session.add(Notification(user_id=post.user_id, message=f"{user.name} liked your post", type="like"))
             db.session.commit()
-            socketio.emit("notification", {"type": "like", "post_id": post.id}, room=f"user_{post.user_id}")
+            socketio.emit("notification", {"type": "like"}, room=f"user_{post.user_id}")
         socketio.emit("post_liked", result)
         return api_response(data=result, message="Post liked", status=201)
     
@@ -1900,11 +1603,8 @@ def add_comment(post_id):
         if not post:
             return api_response(message="Post not found", status=404)
 
-        # Support both JSON and multipart/form-data submissions
         data = request.get_json(silent=True) or {}
-        form = request.form or {}
-        comment_content = ((form.get('content') or data.get('content') or "") or "").strip()
-        attachment = request.files.get('attachment')
+        comment_content = (data.get('content') or "").strip()
         
         if not comment_content:
             return api_response(message="Comment cannot be empty", status=400)
@@ -1912,30 +1612,14 @@ def add_comment(post_id):
         if len(comment_content) > 5000:
             return api_response(message="Comment is too long", status=400)
 
-        # Handle optional file attachment
-        attachment_url = None
-        attachment_name = None
-        if attachment:
-            # Validate attachment
-            error = validate_upload(attachment)
-            if error:
-                return api_response(message=error, status=400)
-            uploads_folder = os.path.join(app.root_path, 'static/uploads')
-            if not os.path.exists(uploads_folder):
-                os.makedirs(uploads_folder)
-            att_filename = f"{uuid.uuid4().hex}_{secure_filename(attachment.filename)}"
-            attachment.save(os.path.join(uploads_folder, att_filename))
-            attachment_url = f'/static/uploads/{att_filename}'
-            attachment_name = secure_filename(attachment.filename)
-
-        new_comment = Comment(content=comment_content, user_id=user_id, post_id=post.id, attachment_url=attachment_url, attachment_name=attachment_name)
+        new_comment = Comment(content=comment_content, user_id=user_id, post_id=post.id)
         db.session.add(new_comment)
         db.session.commit()
         result = serialize_comment(new_comment, user_id)
         if post.user_id != user_id:
-            db.session.add(Notification(user_id=post.user_id, message=f"{new_comment.user.name} commented on your post", type="comment", post_id=post.id))
+            db.session.add(Notification(user_id=post.user_id, message=f"{new_comment.user.name} commented on your post", type="comment"))
             db.session.commit()
-            socketio.emit("notification", {"type": "comment", "post_id": post.id}, room=f"user_{post.user_id}")
+            socketio.emit("notification", {"type": "comment"}, room=f"user_{post.user_id}")
         socketio.emit("post_commented", {"post_id": post_id, "comment": result})
         return api_response(data=result, message="Comment added", status=201)
 
@@ -2180,7 +1864,6 @@ def get_user_by_id(user_id):
             'description': user.description,
             'location': user.location,
             'picture': picture_url,
-            'avatar': profile_avatar_url(user),
             'cover_photo': public_profile_url(user.cover_photo),
             'occupation': user.occupation,
             'company': user.company,
@@ -2227,7 +1910,6 @@ def get_notifications():
             Notification.message,
             Notification.type,
             Notification.friend_request_id,
-            Notification.post_id,
             Notification.read,
             Notification.archived,
             Notification.created_at,
@@ -2277,7 +1959,6 @@ def get_notifications():
             "message": notif.message,
             "type": notif.type,
             "friend_request_id": notif.friend_request_id,
-            "post_id": notif.post_id,
             "friend_request_status": notif.friend_request_status or "unknown",
             "originator_name": notif.originator_name or "Unknown User",
             "originator_profile_pic": (
@@ -2394,7 +2075,7 @@ def accept_friend_request():
     # Notify the requester that the friend request was accepted
     new_notification = Notification(
         user_id=friend_request.requester_id,  # Notify the requester
-        message=f"You and {recipient_user.name} are now friends!",
+        message=f"{recipient_user.name} accepted your friend request!",
         type="friend_accept",
         friend_request_id=friend_request.id  # Associate the notification with the request
     )
@@ -2423,7 +2104,7 @@ def get_friends():
         {
             "id": friend.id,
             "name": friend.name,
-            "profile_pic": profile_avatar_url(friend) or f"{request.host_url}static/default.jpg"
+            "profile_pic": f"{request.host_url}static/{friend.picture}" if friend.picture else f"{request.host_url}static/default.jpg"
         }
         for friend in friends
     ]
@@ -2517,183 +2198,33 @@ def friend_suggestions():
     return jsonify([_person_payload(user) for user in candidates[:8]]), 200
 
 
-def _active_visible_story(story_id, user_id):
-    """Return an active story only when the requester may see its owner."""
-    story = Story.query.filter(Story.id == story_id, Story.expires_at > datetime.utcnow()).first()
-    if not story:
-        return None
-    if story.user_id == user_id:
-        return story
-    blocked = BlockedUser.query.filter(
-        ((BlockedUser.user_id == user_id) & (BlockedUser.blocked_user_id == story.user_id)) |
-        ((BlockedUser.user_id == story.user_id) & (BlockedUser.blocked_user_id == user_id))
-    ).first()
-    if blocked:
-        return None
-    return story if Friendship.query.filter(
-        ((Friendship.user_id == user_id) & (Friendship.friend_id == story.user_id)) |
-        ((Friendship.user_id == story.user_id) & (Friendship.friend_id == user_id))
-    ).first() else None
-
-
-def _story_payload(story, user_id):
-    return {
-        'id': story.id, 'user_id': story.user_id, 'name': story.user.name,
-        'picture': profile_avatar_url(story.user), 'content': story.content,
-        'media_url': public_media_url(story.media_url),
-        'thumbnail_url': public_media_url(story.thumbnail_url),
-        'media_type': story.media_type, 'created_at': story.created_at.isoformat(),
-        'expires_at': story.expires_at.isoformat(), 'is_own': story.user_id == user_id,
-        'viewed': StoryView.query.filter_by(story_id=story.id, user_id=user_id).first() is not None,
-        'liked': StoryLike.query.filter_by(story_id=story.id, user_id=user_id).first() is not None,
-        'like_count': StoryLike.query.filter_by(story_id=story.id).count(),
-        'view_count': StoryView.query.filter_by(story_id=story.id).count() if story.user_id == user_id else None,
-    }
-
-
 @app.route('/api/stories', methods=['GET', 'POST'])
 @jwt_required()
 def stories():
-    current_user_id = int(get_jwt_identity())
-    if request.method == 'POST':
-        # Accept multipart/form-data uploads (media + optional thumbnail)
-        if request.content_type and request.content_type.startswith('multipart/'):
-            content = (request.form.get('content') or '').strip()
-            media = request.files.get('media')
-            thumbnail = request.files.get('thumbnail')
-            if not content and not media:
-                return jsonify({"error": "A story needs text or media"}), 400
-            media_url = None
-            thumb_url = None
-            media_type = None
-            if media:
-                err = validate_upload(media)
-                if err:
-                    return jsonify({"error": err}), 400
-                filename = secure_filename(f"story_{uuid.uuid4().hex}_{media.filename}")
-                path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-                media.save(path)
-                media_url = f"/static/uploads/{filename}"
-                media_type = media_type_for(media.filename, media.mimetype)
-            if thumbnail:
-                err = validate_upload(thumbnail)
-                if err:
-                    return jsonify({"error": err}), 400
-                tname = secure_filename(f"story_thumb_{uuid.uuid4().hex}_{thumbnail.filename}")
-                tpath = os.path.join(app.config['UPLOAD_FOLDER'], tname)
-                thumbnail.save(tpath)
-                thumb_url = f"/static/uploads/{tname}"
-            story = Story(user_id=current_user_id, content=content or None, media_url=media_url, thumbnail_url=thumb_url, media_type=media_type or ('image' if media_url else 'text'))
-            db.session.add(story)
-            db.session.commit()
-            return jsonify(_story_payload(story, current_user_id)), 201
-        else:
-            payload = request.get_json(silent=True) or {}
-            content = (payload.get('content') or '').strip()
-            media_url = payload.get('media_url')
-            media_type = payload.get('media_type') or ('image' if media_url else 'text')
-            if media_type not in {'image', 'video', 'text'}:
-                return api_response(message='Unsupported story type.', status=422)
-            if len(content) > 500:
-                return api_response(message='Text stories are limited to 500 characters.', status=422)
-            if not content and not media_url:
-                return jsonify({"error": "A story needs text or media"}), 400
-            story = Story(user_id=current_user_id, content=content or None, media_url=media_url, media_type=media_type)
-            db.session.add(story)
-            db.session.commit()
-            return jsonify(_story_payload(story, current_user_id)), 201
-
-    blocked_ids = [row.blocked_user_id for row in BlockedUser.query.filter_by(user_id=current_user_id)]
-    blocked_ids += [row.user_id for row in BlockedUser.query.filter_by(blocked_user_id=current_user_id)]
-    friend_ids = [row.friend_id for row in Friendship.query.filter_by(user_id=current_user_id)]
-    friend_ids += [row.user_id for row in Friendship.query.filter_by(friend_id=current_user_id)]
-    results = Story.query.filter(
-        Story.expires_at > datetime.utcnow(),
-        Story.user_id.notin_(blocked_ids or [-1]),
-        Story.user_id.in_(list(set(friend_ids + [current_user_id])))
-    ).order_by(Story.created_at.asc()).limit(100).all()
-    return jsonify([_story_payload(story, current_user_id) for story in results]), 200
-
-
-@app.route('/api/stories/<int:story_id>', methods=['GET', 'DELETE'])
-@jwt_required()
-def story_detail(story_id):
-    user_id = int(get_jwt_identity())
-    story = _active_visible_story(story_id, user_id)
-    if not story:
-        return api_response(message='This story is no longer available.', status=404)
-    if request.method == 'DELETE':
-        if story.user_id != user_id:
-            return api_response(message='You can only delete your own stories.', status=403)
-        db.session.delete(story)
-        db.session.commit()
-        return api_response({'id': story_id}, 'Story deleted')
-    return api_response(_story_payload(story, user_id))
-
-
-@app.route('/api/stories/<int:story_id>/view', methods=['POST'])
-@jwt_required()
-def view_story(story_id):
-    user_id = int(get_jwt_identity())
-    story = _active_visible_story(story_id, user_id)
-    if not story:
-        return api_response(message='This story is no longer available.', status=404)
-    if story.user_id != user_id and not StoryView.query.filter_by(story_id=story.id, user_id=user_id).first():
-        db.session.add(StoryView(story_id=story.id, user_id=user_id))
-        db.session.commit()
-    return api_response({'id': story.id}, 'Story viewed')
-
-
-@app.route('/api/stories/<int:story_id>/viewers', methods=['GET'])
-@jwt_required()
-def story_viewers(story_id):
-    user_id = int(get_jwt_identity())
-    story = _active_visible_story(story_id, user_id)
-    if not story:
-        return api_response(message='This story is no longer available.', status=404)
-    if story.user_id != user_id:
-        return api_response(message='Only the story owner can see viewers.', status=403)
-    views = StoryView.query.filter_by(story_id=story.id).order_by(StoryView.viewed_at.desc()).all()
-    return api_response([{'user_id': item.user_id, 'name': item.user.name, 'avatar': profile_avatar_url(item.user), 'viewed_at': item.viewed_at.isoformat()} for item in views])
-
-
-@app.route('/api/stories/<int:story_id>/like', methods=['POST', 'DELETE'])
-@jwt_required()
-def like_story(story_id):
-    user_id = int(get_jwt_identity())
-    story = _active_visible_story(story_id, user_id)
-    if not story:
-        return api_response(message='This story is no longer available.', status=404)
-    like = StoryLike.query.filter_by(story_id=story.id, user_id=user_id).first()
-    if request.method == 'DELETE':
-        if like:
-            db.session.delete(like)
-            db.session.commit()
-    elif not like:
-        db.session.add(StoryLike(story_id=story.id, user_id=user_id))
-        if story.user_id != user_id:
-            db.session.add(Notification(user_id=story.user_id, message=f'{User.query.get(user_id).name} liked your story.', type='story_like', story_id=story.id))
-        db.session.commit()
-    return api_response(_story_payload(story, user_id))
-
-
-@app.route('/api/stories/<int:story_id>/reply', methods=['POST'])
-@jwt_required()
-def reply_to_story(story_id):
-    user_id = int(get_jwt_identity())
-    story = _active_visible_story(story_id, user_id)
-    content = ((request.get_json(silent=True) or {}).get('message') or '').strip()
-    if not story:
-        return api_response(message='This story is no longer available.', status=404)
-    if story.user_id == user_id:
-        return api_response(message='You cannot reply to your own story.', status=422)
-    if not content or len(content) > 2000:
-        return api_response(message='Replies must be between 1 and 2000 characters.', status=422)
-    reply = Message(sender_id=user_id, receiver_id=story.user_id, message=content, story_id=story.id)
-    db.session.add(reply)
-    db.session.add(Notification(user_id=story.user_id, message=f'{User.query.get(user_id).name} replied to your story.', type='story_reply', story_id=story.id))
+    current_user_id = get_jwt_identity()
+    # Expired stories are never returned. Cleanup is deliberately best-effort so
+    # a retention job can later own the same policy without changing this API.
+    Story.query.filter(Story.expires_at <= datetime.utcnow()).delete(synchronize_session=False)
     db.session.commit()
-    return api_response({'id': reply.id, 'receiver_id': story.user_id, 'story_id': story.id}, 'Reply sent', 201)
+    if request.method == 'POST':
+        payload = request.get_json(silent=True) or {}
+        content = (payload.get('content') or '').strip()
+        media_url = payload.get('media_url')
+        media_type = payload.get('media_type') or ('image' if media_url else 'text')
+        if not content and not media_url:
+            return jsonify({"error": "A story needs text or media"}), 400
+        story = Story(user_id=current_user_id, content=content or None, media_url=media_url, media_type=media_type)
+        db.session.add(story)
+        db.session.commit()
+        return jsonify({"id": story.id, "expires_at": story.expires_at.isoformat()}), 201
+    results = Story.query.filter(Story.expires_at > datetime.utcnow()).order_by(Story.created_at.desc()).limit(50).all()
+    return jsonify([{
+        "id": story.id, "user_id": story.user_id, "name": story.user.name,
+        "picture": url_for("serve_image", filename=story.user.picture, _external=True) if story.user.picture else None,
+        "content": story.content, "media_url": story.media_url, "media_type": story.media_type,
+        "created_at": story.created_at.isoformat(), "expires_at": story.expires_at.isoformat(),
+        "is_own": story.user_id == current_user_id,
+    } for story in results]), 200
 
 @app.route('/api/mark-all-read', methods=['POST'])
 @jwt_required()
@@ -2964,16 +2495,19 @@ def delete_message(message_id):
 def get_chats():
     try:
         current_user_id = get_jwt_identity()
-
+        
+        # Ensure current_user_id is an integer
         try:
             current_user_id = int(current_user_id)
         except (ValueError, TypeError):
             return api_response(message="Invalid authentication token", status=401)
-
+        
+        # Query all messages where current user is either sender or receiver
         messages = Message.query.filter(
             (Message.sender_id == current_user_id) | (Message.receiver_id == current_user_id)
         ).order_by(Message.timestamp.desc()).all()
 
+        # Collect unique partner IDs
         partner_ids = set()
         for msg in messages:
             if msg.sender_id != current_user_id:
@@ -2981,86 +2515,34 @@ def get_chats():
             if msg.receiver_id != current_user_id:
                 partner_ids.add(msg.receiver_id)
 
+        # Build the chat list with user details
         chats = []
         for pid in partner_ids:
             user = User.query.get(pid)
-            if not user or user.deleted_at:
-                continue
-
-            partner_messages = [
-                message for message in messages
-                if ((message.sender_id == current_user_id and message.receiver_id == pid) or
-                    (message.sender_id == pid and message.receiver_id == current_user_id))
-                and not ((message.sender_id == current_user_id and message.deleted_by_sender) or
-                         (message.receiver_id == current_user_id and message.deleted_by_receiver))
-            ]
-
-            latest = max(partner_messages, key=lambda message: message.timestamp, default=None)
-            unread_count = sum(
-                1 for message in partner_messages
-                if message.sender_id == pid and message.receiver_id == current_user_id and not message.is_read
-            )
-
-            last_message = "Start a conversation"
-            if latest:
-                if latest.message and latest.message.strip():
-                    last_message = latest.message.strip()[:50]
-                elif latest.media_type:
-                    last_message = f"[{latest.media_type}]"
-
-            picture_url = (
-                url_for("serve_image", filename=user.picture, _external=True)
-                if user.picture else None
-            )
-
-            chats.append({
-                "id": user.id,
-                "name": user.name,
-                "profile_pic": picture_url or "/default-profile.png",
-                "last_message": last_message,
-                "last_message_at": latest.timestamp.isoformat() if latest else None,
-                "unread_count": unread_count,
-                "is_online": bool(user.last_active and (datetime.utcnow() - user.last_active).total_seconds() < 300),
-                "pinned": bool((preference := ConversationPreference.query.filter_by(user_id=current_user_id, partner_id=user.id).first()) and preference.pinned),
-                "favourite": bool(preference and preference.favourite),
-            })
-
-        chats.sort(key=lambda chat: (chat['pinned'], chat["last_message_at"] or ""), reverse=True)
+            if user and not user.deleted_at:  # Exclude deleted users
+                picture_url = (
+                    url_for("serve_image", filename=user.picture, _external=True)
+                    if user.picture else None
+                )
+                latest = next((message for message in messages if message.sender_id == pid or message.receiver_id == pid), None)
+                unread_count = sum(1 for message in messages if message.sender_id == pid and message.receiver_id == current_user_id and not message.is_read)
+                chats.append({
+                    "id": user.id,
+                    "name": user.name,
+                    "profile_pic": picture_url or "/default-profile.png",
+                    "last_message": latest.message[:50] if latest and latest.message else (f"[{latest.media_type}]" if latest and latest.media_type else "Start a conversation"),
+                    "last_message_at": latest.timestamp.isoformat() if latest else None,
+                    "unread_count": unread_count,
+                    "is_online": user.last_active and (datetime.utcnow() - user.last_active).total_seconds() < 300  # Online if active within 5 minutes
+                })
+        
+        # Sort by most recent conversation
+        chats.sort(key=lambda chat: chat["last_message_at"] or "", reverse=True)
         return jsonify(chats), 200
-
+    
     except Exception as e:
         app.logger.error(f"Error fetching chats: {str(e)}")
         return api_response(message="Failed to fetch conversations", status=500)
-
-
-@app.route('/api/chats/<int:partner_id>', methods=['PATCH', 'DELETE'])
-@jwt_required()
-def manage_chat(partner_id):
-    user_id = int(get_jwt_identity())
-    if not User.query.get(partner_id):
-        return api_response(message='Conversation not found', status=404)
-    if request.method == 'DELETE':
-        messages = Message.query.filter(
-            ((Message.sender_id == user_id) & (Message.receiver_id == partner_id)) |
-            ((Message.sender_id == partner_id) & (Message.receiver_id == user_id))
-        ).all()
-        for message in messages:
-            if message.sender_id == user_id:
-                message.deleted_by_sender = True
-            else:
-                message.deleted_by_receiver = True
-        db.session.commit()
-        return api_response({'id': partner_id}, 'Conversation removed')
-    payload = request.get_json(silent=True) or {}
-    preference = ConversationPreference.query.filter_by(user_id=user_id, partner_id=partner_id).first()
-    if not preference:
-        preference = ConversationPreference(user_id=user_id, partner_id=partner_id)
-        db.session.add(preference)
-    for field in ('pinned', 'favourite'):
-        if field in payload and isinstance(payload[field], bool):
-            setattr(preference, field, payload[field])
-    db.session.commit()
-    return api_response({'id': partner_id, 'pinned': preference.pinned, 'favourite': preference.favourite})
 
 
 @app.route("/api/messages/unread-count", methods=["GET"])

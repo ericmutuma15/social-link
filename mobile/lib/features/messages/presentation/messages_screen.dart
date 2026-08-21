@@ -3,6 +3,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../feeds/presentation/feed_controller.dart';
+import '../../../shared/utils/profile_image.dart';
 import '../../../shared/widgets/top_menu.dart';
 
 class MessagesScreen extends ConsumerStatefulWidget {
@@ -99,7 +100,7 @@ class _MessagesScreenState extends ConsumerState<MessagesScreen> {
                           final name = friend['name'] as String? ?? 'Friend';
                           return ListTile(
                             leading: CircleAvatar(
-                              backgroundImage: photo == null || photo.isEmpty ? null : CachedNetworkImageProvider(photo),
+                              backgroundImage: resolveProfileImageUrl(photo) == null ? null : CachedNetworkImageProvider(resolveProfileImageUrl(photo)!),
                               child: (photo == null || photo.isEmpty) ? Text(name.substring(0, 1).toUpperCase()) : null,
                             ),
                             title: Text(name),
@@ -212,7 +213,7 @@ class _MessagesScreenState extends ConsumerState<MessagesScreen> {
                       child: ListTile(
                         leading: GestureDetector(
                           onTap: () => context.push('/profile/${chat['id']}'),
-                          child: CircleAvatar(backgroundImage: chat['profile_pic'] == null ? null : CachedNetworkImageProvider(chat['profile_pic'] as String), child: chat['profile_pic'] == null ? Text((chat['name'] as String? ?? 'U').substring(0, 1).toUpperCase()) : null),
+                          child: CircleAvatar(backgroundImage: resolveProfileImageUrl(chat['profile_pic'] as String?) == null ? null : CachedNetworkImageProvider(resolveProfileImageUrl(chat['profile_pic'] as String?)!), child: chat['profile_pic'] == null ? Text((chat['name'] as String? ?? 'U').substring(0, 1).toUpperCase()) : null),
                         ),
                         title: Row(
                           children: [

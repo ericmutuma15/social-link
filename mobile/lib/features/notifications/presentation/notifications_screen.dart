@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../feeds/presentation/feed_controller.dart';
+import '../../../shared/utils/profile_image.dart';
 import '../../../shared/widgets/top_menu.dart';
 
 String _localTimeString(String? value) {
@@ -84,6 +85,30 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
     }
   }
 
+  Future<void> _acceptFriendRequest(Map<String, dynamic> item, int index) async {
+    final id = item['friend_request_id'];
+    if (id == null) return;
+    try {
+      await ref.read(apiProvider).post('/api/accept-friend-request', data: {'requestId': id});
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Friend request accepted.')));
+      await _load();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+  }
+
+  Future<void> _declineFriendRequest(Map<String, dynamic> item, int index) async {
+    final id = item['friend_request_id'];
+    if (id == null) return;
+    try {
+      await ref.read(apiProvider).delete('/api/friend-requests/$id');
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Friend request declined.')));
+      await _load();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+  }
+
   Future<void> _markAllRead() async {
     try {
       await ref.read(apiProvider).post('/api/mark-all-read');
@@ -113,7 +138,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
                     final item = _items[index - 1];
                     final type = item['type'] as String? ?? 'general';
                     final originator = item['originator_name'] as String? ?? 'Someone';
-                    final avatar = item['originator_profile_pic'] as String?;
+                    final avatar = resolveProfileImageUrl(item['originator_profile_pic'] as String?);
                     final title = type == 'friend_accept'
                         ? 'You and $originator are now friends.'
                         : type == 'friend_request'
@@ -134,7 +159,9 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
                               ),
                         title: Text(title),
                         subtitle: Text(_localTimeString(item['created_at'] as String?)),
-                        trailing: type == 'friend_request' || type == 'friend_accept'
+                        trailing: type == 'friend_request' && (item['friend_request_status'] == null || item['friend_request_status'] == 'pending')
+                          ? Row(mainAxisSize: MainAxisSize.min, children: [FilledButton(onPressed: () => _acceptFriendRequest(item, index), child: const Text('Accept')), const SizedBox(width: 8), TextButton(onPressed: () => _declineFriendRequest(item, index), child: const Text('Decline'))])
+                          : type == 'friend_request' || type == 'friend_accept'
                             ? const Icon(Icons.arrow_forward_ios_rounded, size: 16)
                             : item['read'] == true ? const Icon(Icons.done_all_rounded, size: 16) : const Icon(Icons.circle, size: 10),
                       ),

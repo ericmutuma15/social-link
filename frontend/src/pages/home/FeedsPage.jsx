@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import api from "../../services/apiClient";
+import cacheClient from "../../services/cacheClient";
 import CreatePostModal from "../../components/CreatePostModal";
 import PostCard from "../../components/PostCard";
 import StoryCard from "../../components/StoryCard";
@@ -20,9 +21,11 @@ export default function FeedsPage() {
   const baseUrl = import.meta.env.VITE_API_BASE_URL;
   const { toggleBookmark } = useBookmarks();
   useEffect(() => {
-    api
-      .get("/api/feeds")
-      .then(({ data }) =>
+    let mounted = true;
+    (async () => {
+      try {
+        const { data } = await cacheClient.getCached('/api/feeds', {}, 30);
+        if (!mounted) return;
         setPosts(
           (data.items || []).map((post) => ({
             ...post,
@@ -32,12 +35,28 @@ export default function FeedsPage() {
             commentText: "",
             comments: post.comments || [],
           })),
-        ),
-      )
-      .catch(() => setError("Your feed could not be loaded right now."))
-      .finally(() => setLoading(false));
+        );
+      } catch (_) {
+        if (mounted) setError("Your feed could not be loaded right now.");
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
+    return () => { mounted = false; };
   }, []);
-  useEffect(() => { api.get("/api/stories").then(({ data }) => setStories(data)).catch(() => setStories([])); }, []);
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const { data } = await cacheClient.getCached('/api/stories', {}, 30);
+        if (!mounted) return;
+        setStories(data);
+      } catch (_) {
+        if (mounted) setStories([]);
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
   const update = (id, change) =>
     setPosts((items) =>
       items.map((post) =>
@@ -54,6 +73,7 @@ export default function FeedsPage() {
       const { data } = await api.post(`/api/posts/${id}/like`);
       const result = data.data || data;
       update(id, () => ({ likes: result.likes, isLiked: result.liked }));
+      try { cacheClient.invalidateCache('/api/feeds'); } catch (_) {}
       toast.success(result.liked ? "❤️ Post liked" : "💔 Like removed");
     } catch {
       update(id, (item) => ({
@@ -75,6 +95,7 @@ export default function FeedsPage() {
         comments: [...item.comments, saved],
         commentText: "",
       }));
+      try { cacheClient.invalidateCache('/api/feeds'); } catch (_) {}
       toast.success("Comment posted");
     } catch {
       toast.error("Your comment could not be posted. Please try again.");
@@ -85,6 +106,7 @@ export default function FeedsPage() {
     setPosts((items) => items.filter((item) => item.id !== post.id));
     try {
       await api.delete(`/api/posts/${post.id}`);
+      try { cacheClient.invalidateCache('/api/feeds'); } catch (_) {}
       toast.success("Post deleted");
     } catch {
       setPosts((items) => [post, ...items]);
@@ -96,6 +118,7 @@ export default function FeedsPage() {
     update(post.id, () => ({ bookmarked: !original }));
     try {
       const saved = await toggleBookmark(post);
+      try { cacheClient.invalidateCache('/api/feeds'); } catch (_) {}
       toast.success(saved ? "🔖 Saved to bookmarks" : "🗑 Removed from bookmarks");
     } catch {
       update(post.id, () => ({ bookmarked: original }));

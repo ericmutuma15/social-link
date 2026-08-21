@@ -1,3 +1,5 @@
+import '../utils/profile_image.dart';
+
 class Post {
   const Post({
     required this.id,
@@ -32,7 +34,7 @@ class Post {
     author: json['user_name'] as String? ?? 'Unknown',
     createdAt:
         DateTime.tryParse(json['timestamp'] as String? ?? '') ?? DateTime.now(),
-    authorPhoto: json['user_photo'] as String?,
+    authorPhoto: resolveProfileImageUrl(json['user_photo'] as String?),
     content: json['content'] as String?,
     mediaUrl: json['media_url'] as String?,
     mediaType: json['media_type'] as String?,

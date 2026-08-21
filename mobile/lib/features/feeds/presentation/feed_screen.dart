@@ -4,6 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../shared/utils/profile_image.dart';
 import '../../../shared/models/post.dart';
 import '../../../shared/widgets/app_async.dart';
 import '../../../shared/widgets/post_card.dart';
@@ -336,6 +337,7 @@ class _StoryTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final initials = name.trim().isNotEmpty ? name.trim().substring(0, 1).toUpperCase() : 'S';
+    final resolved = resolveProfileImageUrl(photo);
     return GestureDetector(
       onTap: onTap,
       child: SizedBox(
@@ -344,7 +346,7 @@ class _StoryTile extends StatelessWidget {
           children: [
             CircleAvatar(
               radius: 32,
-              backgroundImage: photo == null ? null : CachedNetworkImageProvider(photo!),
+              backgroundImage: resolved == null ? null : CachedNetworkImageProvider(resolved),
               child: photo == null ? Text(initials) : null,
             ),
             const SizedBox(height: 6),
